@@ -1,0 +1,17 @@
+api_version = "2026-07"
+
+[[extensions]]
+name = "BundlePilot: Mix & Match"
+handle = "bundlepilot-mix-match"
+type = "function"
+uid = "3f6a9e1c-8b2d-4a77-9c1e-5d0b6a2f7e44"
+description = "Merges a customer's valid Mix & Match / Grouped Mix & Match selection into one bundle line at checkout. Never trusts client-supplied discount data — see docs/CART_TRANSFORM.md."
+
+  [[extensions.targeting]]
+  target = "cart.transform.run"
+  input_query = "src/cart_transform_run.graphql"
+  export = "cart-transform-run"
+
+  [extensions.build]
+  command = ""
+  path = "dist/function.wasm"

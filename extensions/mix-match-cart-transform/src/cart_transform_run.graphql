@@ -1,0 +1,28 @@
+query CartTransformRunInput {
+  cart {
+    lines {
+      id
+      quantity
+      cost {
+        amountPerQuantity {
+          amount
+        }
+      }
+      merchandise {
+        __typename
+        ... on ProductVariant {
+          id
+          bundleComponent: metafield(namespace: "$app", key: "bundle-component") {
+            jsonValue
+          }
+        }
+      }
+      offerAttr: attribute(key: "_bp_offer") {
+        value
+      }
+      sessionAttr: attribute(key: "_bp_session") {
+        value
+      }
+    }
+  }
+}

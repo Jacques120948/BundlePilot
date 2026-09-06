@@ -17,12 +17,21 @@ relying on any of these numbers in a future phase — Shopify revises them.
   is why V1 uses `linesMerge` for Mix & Match instead of `lineUpdate`.
 - **Nested bundles aren't supported.** A bundle can't have components and
   also be a component of another bundle.
-- **A (Shopify-native) bundle can have up to 150 components and 3 options.**
-  We adopt 150 as the default cap on products in a single Mix & Match pool /
-  grouped bundle's combined groups (configurable, see
-  docs/DATABASE.md), both to stay within Shopify's own bundle conventions
-  and to keep our denormalized variant metafields (see
-  docs/MIX_MATCH_ENGINE.md) under the metafield size limit below.
+- **`linesMerge` requires a `parentVariantId`** — a real, dedicated
+  `ProductVariant`. This is why BundlePilot creates one hidden, unpublished
+  parent variant per Mix & Match offer (docs/BUNDLE_PRODUCT_MODEL.md),
+  reversing Phase 0's original "no parent product at all" assumption.
+- **Shopify's native bundle component caps (30-150 depending on the specific
+  bundle mechanism) don't directly bind us.** Those limits apply to
+  `productVariantComponents` relationships (native Fixed/Variant bundles);
+  BundlePilot's Mix & Match doesn't use that relationship at all — it's
+  plain `linesMerge` over ordinary cart lines, with the pool/group
+  membership living entirely in our own denormalized variant metafield.
+  We still adopt **150 products as our own self-imposed pool cap** (see
+  docs/DATABASE.md), for two independent reasons that have nothing to do
+  with the native limit: it's a sane merchant-UX ceiling, and it keeps our
+  denormalized metafield JSON (see below) comfortably under Shopify's
+  10,000-byte metafield size limit.
 - Bundles (Shopify's native bundle feature) can't be combined with selling
   plans (subscriptions, pre-orders, try-before-you-buy). BundlePilot doesn't
   touch selling plans in V1, so this doesn't block us, but it means a
@@ -39,8 +48,8 @@ relying on any of these numbers in a future phase — Shopify revises them.
   the shop. See docs/MIX_MATCH_ENGINE.md.
 - **Metafield values over 10,000 bytes are not returned to a function.**
   This bounds how large one offer's denormalized JSON (product/variant GIDs,
-  group structure) can be — see docs/BUNDLE_PRODUCT_MODEL.md for the size
-  budget math behind the 150-product cap.
+  group structure) can be — this, not any native Shopify bundle limit, is
+  the real reason behind our self-imposed 150-product pool cap above.
 - **Input query size: 3,000 bytes max**, list arguments/variables capped at
   100 elements.
 - **No network access, no randomness, no clock.** Functions must be pure
@@ -86,7 +95,7 @@ relying on any of these numbers in a future phase — Shopify revises them.
 
 | Limit | Value | Source |
 |---|---|---|
-| Max products in a Mix & Match pool / grouped bundle (combined) | 150 | Shopify bundle component cap + metafield size budget |
+| Max products in a Mix & Match pool / grouped bundle (combined) | 150 | Self-imposed: metafield size budget + merchant UX, not a Shopify-enforced limit for Cart Transform |
 | Max groups per Grouped Mix & Match | 10 | Practical UX limit + input-query budget headroom, not a hard Shopify limit |
 | Max active offers (Basic / Pro plans) | 10 / 30 | Business decision (docs/BILLING.md), not a platform limit |
 | FIXED_BUNDLE_PRICE | Not in V1 | See docs/BUNDLE_ARCHITECTURE.md "Discount types" — deferred pending multi-currency/tax verification |

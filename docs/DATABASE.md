@@ -51,6 +51,34 @@ is a plain many-to-many join between `BundleGroup` and `OfferProduct` that
 keeps `OfferProduct` as the single deduplicated cache row per product per
 offer.
 
+## Shopify object references added in Phase 2
+
+`Shop.cartTransformId` and `Offer.shopifyParentProductId` /
+`shopifyParentVariantId` cache Shopify object IDs the app creates on first
+Mix & Match publish (docs/BUNDLE_PRODUCT_MODEL.md, docs/CART_TRANSFORM.md).
+`Offer.configVersion` is bumped on every Mix & Match edit and denormalized
+into the `bundle-component` variant metafield as `offerVersion`, so the
+Cart Transform function can detect a cart line still carrying a stale
+snapshot mid-propagation (docs/MIX_MATCH_ENGINE.md). None of these are
+used for discount math themselves — they're lookup keys the sync layer
+uses to avoid recreating Shopify objects that already exist.
+
+## `OfferVariant` uniqueness is enforced in application code, not the database
+
+`@@unique([offerId, shopifyVariantId, bundleGroupId])` does **not** stop a
+flat-pool offer (where `bundleGroupId` is always `NULL`) from getting the
+same variant inserted twice — SQL's `NULL <> NULL` means a unique
+constraint never fires across rows that are all `NULL` in one of its
+columns. This is a known, deliberate gap: `app/lib/offers.server.ts`
+always replaces an offer's entire pool (`deleteMany` then `createMany`)
+from a single validated request rather than doing incremental inserts, so
+the application never has a code path that could produce a duplicate row
+in the first place — `app/lib/validation/mix-match.ts` also explicitly
+rejects a pool with a repeated variant before any database write happens.
+If a future phase adds incremental pool edits (add/remove one variant at a
+time instead of resubmitting the whole form), revisit this — a partial
+unique index (`WHERE "bundleGroupId" IS NULL`) would be the fix.
+
 ## Enums vs. free strings
 
 `OfferType`, `OfferStatus`, `DiscountType`, `SelectionMode`, `PlanTier` are

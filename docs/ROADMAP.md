@@ -62,13 +62,55 @@ link the app, `shopify app deploy`, run `shopify app function typegen`,
 and walk the brief item 89 acceptance test on a real dev store before
 treating this phase as done.
 
-## Phase 2 — Mix & Match core
+## Phase 2 — Mix & Match core (built; live verification pending)
 
-- `MIX_MATCH` offer CRUD, pool selection, min/max/allowDuplicates.
-- Cart Transform extension scaffolded, implementing
-  docs/CART_TRANSFORM.md + docs/MIX_MATCH_ENGINE.md.
-- Variant metafield sync on publish/edit.
-- Cheat-test fixture (brief item 80) as an automated Function test.
+Delivered:
+
+- Flat `MIX_MATCH` offer CRUD (create/edit/pause/delete), variant-pool
+  selection via the Resource Picker (`type: "variant"`, so a merchant
+  picks specific SKUs across any collection, not whole products),
+  min/max/allowDuplicates, and a flat discount **or** volume tiers (not
+  both) — `app/lib/offers.server.ts`, `app/lib/validation/mix-match.ts`,
+  `app/components/MixMatchBuilder.tsx`.
+- Cart Transform extension (`extensions/mix-match-cart-transform`,
+  target `cart.transform.run`) implementing docs/CART_TRANSFORM.md +
+  docs/MIX_MATCH_ENGINE.md, with unit tests covering the brief's item 78
+  (pool/duplicates/min/max), item 79 (generalized to real multi-group
+  validation, proving the same function needs no changes for Phase 4),
+  item 80 (cheat test), and item 81 (removing a component invalidates the
+  bundle) acceptance scenarios — 15 tests, all passing.
+- Shopify sync layer (`app/lib/shopify/mix-match-sync.server.ts`,
+  `app/lib/mix-match-publish.server.ts`): creates the shop-wide Cart
+  Transform registration once, creates/reuses a hidden per-offer parent
+  variant, and writes/clears the denormalized `bundle-component` variant
+  metafields on publish/edit — each Shopify object is persisted to the
+  database the moment it's created so a mid-publish failure never
+  duplicates a parent product or cart transform on retry.
+
+**Correction from Phase 0/1 research**: building the actual Cart Transform
+function surfaced that `linesMerge` requires a real `parentVariantId` —
+Phase 0's "no bundle parent product at all" conclusion was wrong. See
+docs/BUNDLE_PRODUCT_MODEL.md for the corrected design (one hidden,
+unpublished parent variant per Mix & Match offer) and
+docs/BUNDLE_LIMITATIONS.md for why native Shopify bundle component caps
+turned out not to apply to our Cart-Transform-only approach either. Both
+are exactly the kind of thing this iterative, documented process is meant
+to catch before it ships broken.
+
+Deferred to a fast-follow within Phase 2 scope (not blocking Phase 3):
+
+- Collection-based selection mode for the Mix & Match pool (schema already
+  supports it via `SelectionMode`; builder UI doesn't expose it yet).
+- Conflict-check UI actions (`View offer` / `Deactivate offer` / `Continue
+  only if safe`) — same gap as Phase 1, the backend check itself works.
+- Stacking multiple complete bundles from one cart in a single click — see
+  docs/CART_TRANSFORM.md's "deliberate V1 simplification" note.
+
+**Not independently verified end-to-end** — same constraint as Phase 1
+(no Shopify Partner org linked in this environment). See
+docs/CART_TRANSFORM.md "Verification status" for the exact steps
+(deploy, `shopify app function typegen` for both extensions, then the
+brief item 90 acceptance test) before treating this phase as done.
 
 ## Phase 3 — Mix & Match storefront
 

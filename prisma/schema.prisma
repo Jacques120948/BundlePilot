@@ -30,6 +30,11 @@ model Shop {
   locale        String    @default("en")
   planName      String? // Shopify plan name (e.g. "basic"), for support/debugging only
 
+  // Cart Transform is registered once per shop (Shopify allows at most one
+  // per app per store) and shared by every Mix & Match / Grouped Mix &
+  // Match offer — see docs/CART_TRANSFORM.md "Activation lifecycle".
+  cartTransformId String? // CartTransform GID
+
   offers        Offer[]
   analyticsDays AnalyticsDaily[]
   subscription  Subscription?
@@ -123,10 +128,17 @@ model Offer {
   startsAt DateTime?
   endsAt   DateTime?
 
+  // Bumped on every update to a Mix & Match offer's pool/groups/discount;
+  // denormalized into each component variant's bundle-component metafield
+  // as "offerVersion" so the Cart Transform function can detect a cart line
+  // still carrying a stale snapshot mid-propagation. See
+  // docs/MIX_MATCH_ENGINE.md.
+  configVersion Int @default(1)
+
   // Shopify object IDs created/owned by this offer.
-  shopifyDiscountId     String? // DiscountAutomaticApp GID (Quantity Break)
-  shopifyMetaobjectId   String? // $app:bundle_offer metaobject GID (Mix & Match)
-  shopifyMetaobjectHandle String?
+  shopifyDiscountId      String? // DiscountAutomaticNode GID (Quantity Break)
+  shopifyParentProductId String? // Hidden bundle parent Product GID (Mix & Match) — see docs/BUNDLE_PRODUCT_MODEL.md
+  shopifyParentVariantId String? // Its default ProductVariant GID — the linesMerge `parentVariantId`
 
   products OfferProduct[]
   variants OfferVariant[]

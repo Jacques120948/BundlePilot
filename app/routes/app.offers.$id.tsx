@@ -7,6 +7,7 @@ import {
   OfferConflictError,
   OfferNotFoundError,
   OfferValidationError,
+  updateMixMatchOffer,
   updateQuantityBreakOffer,
 } from "../lib/offers.server";
 import { EntitlementError } from "../lib/entitlements.server";
@@ -15,7 +16,10 @@ import {
   publishQuantityBreakOffer,
   unpublishQuantityBreakOffer,
 } from "../lib/quantity-break-publish.server";
+import { parseMixMatchForm } from "../lib/mix-match-form.server";
+import { publishMixMatchOffer, unpublishMixMatchOffer } from "../lib/mix-match-publish.server";
 import { QuantityBreakBuilder } from "../components/QuantityBreakBuilder";
+import { MixMatchBuilder } from "../components/MixMatchBuilder";
 
 export const loader = async (args: LoaderFunctionArgs) => {
   const { shop } = await requireTenant(args);
@@ -37,20 +41,36 @@ export const action = async (args: ActionFunctionArgs) => {
   const lifecycleIntent = formData.get("lifecycleIntent");
 
   try {
+    const existingOffer = await getOwnedOffer(shop.id, offerId);
+
     if (lifecycleIntent === "delete") {
       await deleteOffer(shop.id, offerId);
       return redirect("/app/offers");
     }
     if (lifecycleIntent === "pause") {
-      await unpublishQuantityBreakOffer(admin.graphql, shop.id, offerId);
+      if (existingOffer.type === "MIX_MATCH") {
+        await unpublishMixMatchOffer(admin.graphql, shop.id, offerId);
+      } else {
+        await unpublishQuantityBreakOffer(admin.graphql, shop.id, offerId);
+      }
       return redirect(`/app/offers/${offerId}`);
     }
 
-    const { intent, data } = parseQuantityBreakForm(formData);
-    await updateQuantityBreakOffer(shop.id, offerId, data);
+    if (existingOffer.type === "MIX_MATCH") {
+      const previousVariantIds = existingOffer.variants.map((v) => v.shopifyVariantId);
+      const { intent, data } = parseMixMatchForm(formData);
+      await updateMixMatchOffer(shop.id, offerId, data);
 
-    if (intent === "publish") {
-      await publishQuantityBreakOffer(admin.graphql, shop.id, offerId);
+      if (intent === "publish") {
+        await publishMixMatchOffer(admin.graphql, shop.id, offerId, previousVariantIds);
+      }
+    } else {
+      const { intent, data } = parseQuantityBreakForm(formData);
+      await updateQuantityBreakOffer(shop.id, offerId, data);
+
+      if (intent === "publish") {
+        await publishQuantityBreakOffer(admin.graphql, shop.id, offerId);
+      }
     }
 
     return redirect(`/app/offers/${offerId}`);
@@ -71,9 +91,74 @@ export const action = async (args: ActionFunctionArgs) => {
   }
 };
 
+function OfferLifecycleActions({
+  status,
+  fetcher,
+}: {
+  status: string;
+  fetcher: ReturnType<typeof useFetcher>;
+}) {
+  return (
+    <s-section heading={`Status: ${status}`}>
+      <s-stack direction="inline" gap="base">
+        {status === "ACTIVE" && (
+          <fetcher.Form method="post">
+            <input type="hidden" name="lifecycleIntent" value="pause" />
+            <s-button type="submit" variant="secondary">
+              Pause offer
+            </s-button>
+          </fetcher.Form>
+        )}
+        <fetcher.Form method="post">
+          <input type="hidden" name="lifecycleIntent" value="delete" />
+          <s-button type="submit" variant="tertiary" tone="critical">
+            Delete offer
+          </s-button>
+        </fetcher.Form>
+      </s-stack>
+    </s-section>
+  );
+}
+
 export default function EditOffer() {
   const { offer } = useLoaderData<typeof loader>();
   const lifecycleFetcher = useFetcher();
+
+  if (offer.type === "MIX_MATCH") {
+    return (
+      <>
+        <MixMatchBuilder
+          initial={{
+            offerId: offer.id,
+            name: offer.name,
+            publicTitle: offer.publicTitle,
+            description: offer.description ?? "",
+            variants: offer.variants.map((v) => ({
+              id: v.shopifyVariantId,
+              title: v.titleCache ?? v.shopifyVariantId,
+              imageUrl: null,
+            })),
+            minItems: offer.minItems ?? 3,
+            maxItems: offer.maxItems ?? 3,
+            allowDuplicates: offer.allowDuplicates,
+            useTiers: offer.tiers.length > 0,
+            discountType: (offer.discountType as "PERCENTAGE" | "FIXED_AMOUNT") ?? "PERCENTAGE",
+            discountValue: offer.discountValue === null ? 15 : Number(offer.discountValue),
+            tiers: offer.tiers.map((t) => ({
+              quantity: t.quantity,
+              discountType: t.discountType as "PERCENTAGE" | "FIXED_AMOUNT",
+              discountValue: Number(t.discountValue),
+              label: t.label ?? "",
+            })),
+            startsAt: offer.startsAt ? offer.startsAt.toISOString().slice(0, 10) : "",
+            endsAt: offer.endsAt ? offer.endsAt.toISOString().slice(0, 10) : "",
+            status: offer.status,
+          }}
+        />
+        <OfferLifecycleActions status={offer.status} fetcher={lifecycleFetcher} />
+      </>
+    );
+  }
 
   if (offer.type !== "QUANTITY_BREAK") {
     return (
@@ -112,24 +197,7 @@ export default function EditOffer() {
           status: offer.status,
         }}
       />
-      <s-section heading={`Status: ${offer.status}`}>
-        <s-stack direction="inline" gap="base">
-          {offer.status === "ACTIVE" && (
-            <lifecycleFetcher.Form method="post">
-              <input type="hidden" name="lifecycleIntent" value="pause" />
-              <s-button type="submit" variant="secondary">
-                Pause offer
-              </s-button>
-            </lifecycleFetcher.Form>
-          )}
-          <lifecycleFetcher.Form method="post">
-            <input type="hidden" name="lifecycleIntent" value="delete" />
-            <s-button type="submit" variant="tertiary" tone="critical">
-              Delete offer
-            </s-button>
-          </lifecycleFetcher.Form>
-        </s-stack>
-      </s-section>
+      <OfferLifecycleActions status={offer.status} fetcher={lifecycleFetcher} />
     </>
   );
 }

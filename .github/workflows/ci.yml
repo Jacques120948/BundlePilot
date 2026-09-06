@@ -56,8 +56,9 @@ jobs:
         run: npm run test:all
 
       - name: Typecheck Shopify Functions
-        run: npx tsc --noEmit
-        working-directory: extensions/quantity-break-discount
+        run: |
+          npx tsc --noEmit --project extensions/quantity-break-discount/tsconfig.json
+          npx tsc --noEmit --project extensions/mix-match-cart-transform/tsconfig.json
 
       - name: Build
         run: npm run build

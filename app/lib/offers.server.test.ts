@@ -7,6 +7,8 @@ const offerUpdate = vi.fn();
 const offerDelete = vi.fn();
 const offerProductDeleteMany = vi.fn();
 const offerProductCreateMany = vi.fn();
+const offerVariantDeleteMany = vi.fn();
+const offerVariantCreateMany = vi.fn();
 const offerTierDeleteMany = vi.fn();
 const offerTierCreateMany = vi.fn();
 const offerCount = vi.fn();
@@ -27,6 +29,10 @@ vi.mock("../db.server", () => ({
       deleteMany: (...a: unknown[]) => offerProductDeleteMany(...a),
       createMany: (...a: unknown[]) => offerProductCreateMany(...a),
     },
+    offerVariant: {
+      deleteMany: (...a: unknown[]) => offerVariantDeleteMany(...a),
+      createMany: (...a: unknown[]) => offerVariantCreateMany(...a),
+    },
     offerTier: {
       deleteMany: (...a: unknown[]) => offerTierDeleteMany(...a),
       createMany: (...a: unknown[]) => offerTierCreateMany(...a),
@@ -42,6 +48,8 @@ vi.mock("../db.server", () => ({
 
 const {
   createQuantityBreakDraft,
+  createMixMatchDraft,
+  updateMixMatchOffer,
   getOwnedOffer,
   OfferNotFoundError,
   OfferValidationError,
@@ -51,7 +59,7 @@ const {
   deleteOffer,
 } = await import("./offers.server");
 
-const validData = {
+const validQuantityBreakData = {
   name: "Buy more candles",
   publicTitle: "Buy more & save",
   products: [{ shopifyProductId: "gid://shopify/Product/1" }],
@@ -61,28 +69,45 @@ const validData = {
   ],
 };
 
+const validMixMatchData = {
+  name: "Build your coffret",
+  publicTitle: "Compose your bundle",
+  variantIds: [
+    "gid://shopify/ProductVariant/1",
+    "gid://shopify/ProductVariant/2",
+    "gid://shopify/ProductVariant/3",
+  ],
+  minItems: 3,
+  maxItems: 3,
+  allowDuplicates: false,
+  discountType: "PERCENTAGE" as const,
+  discountValue: 15,
+  tiers: [],
+};
+
 describe("offers.server", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it("rejects creating a draft that fails validation", async () => {
+  it("rejects creating a Quantity Break draft that fails validation", async () => {
     await expect(
-      createQuantityBreakDraft("shop_1", { ...validData, products: [] }),
+      createQuantityBreakDraft("shop_1", { ...validQuantityBreakData, products: [] }),
     ).rejects.toBeInstanceOf(OfferValidationError);
     expect(offerCreate).not.toHaveBeenCalled();
   });
 
-  it("creates a draft offer and its products/tiers when valid", async () => {
+  it("creates a Quantity Break draft offer and its products/tiers when valid", async () => {
     offerCreate.mockResolvedValue({ id: "off_1" });
     offerFindFirst.mockResolvedValue({
       id: "off_1",
       shopId: "shop_1",
       tiers: [],
       products: [],
+      variants: [],
     });
 
-    const result = await createQuantityBreakDraft("shop_1", validData);
+    const result = await createQuantityBreakDraft("shop_1", validQuantityBreakData);
 
     expect(offerCreate).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -91,7 +116,59 @@ describe("offers.server", () => {
     );
     expect(offerProductCreateMany).toHaveBeenCalled();
     expect(offerTierCreateMany).toHaveBeenCalled();
-    expect(result).toEqual({ id: "off_1", shopId: "shop_1", tiers: [], products: [] });
+    expect(result).toEqual({ id: "off_1", shopId: "shop_1", tiers: [], products: [], variants: [] });
+  });
+
+  it("rejects creating a Mix & Match draft that fails validation", async () => {
+    await expect(
+      createMixMatchDraft("shop_1", { ...validMixMatchData, variantIds: [] }),
+    ).rejects.toBeInstanceOf(OfferValidationError);
+    expect(offerCreate).not.toHaveBeenCalled();
+  });
+
+  it("creates a Mix & Match draft offer and its variant pool when valid", async () => {
+    offerCreate.mockResolvedValue({ id: "off_mm_1" });
+    offerFindFirst.mockResolvedValue({
+      id: "off_mm_1",
+      shopId: "shop_1",
+      tiers: [],
+      products: [],
+      variants: validMixMatchData.variantIds.map((shopifyVariantId) => ({ shopifyVariantId })),
+    });
+
+    await createMixMatchDraft("shop_1", validMixMatchData);
+
+    expect(offerCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ shopId: "shop_1", type: "MIX_MATCH", status: "DRAFT" }),
+      }),
+    );
+    expect(offerVariantCreateMany).toHaveBeenCalledWith({
+      data: validMixMatchData.variantIds.map((shopifyVariantId) => ({
+        offerId: "off_mm_1",
+        shopifyVariantId,
+      })),
+    });
+  });
+
+  it("bumps configVersion when a Mix & Match offer is updated", async () => {
+    offerFindFirst.mockResolvedValue({
+      id: "off_mm_1",
+      shopId: "shop_1",
+      tiers: [],
+      products: [],
+      variants: [],
+    });
+    offerUpdate.mockResolvedValue({});
+
+    await updateMixMatchOffer("shop_1", "off_mm_1", validMixMatchData);
+
+    expect(offerUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "off_mm_1" },
+        data: expect.objectContaining({ configVersion: { increment: 1 } }),
+      }),
+    );
   });
 
   it("throws OfferNotFoundError for an offer belonging to another shop", async () => {
@@ -109,11 +186,21 @@ describe("offers.server", () => {
   it("finds conflicting active offers sharing a product", async () => {
     offerFindMany.mockResolvedValue([{ id: "off_2", name: "Existing offer" }]);
 
-    const conflicts = await findConflictingActiveOffers("shop_1", "off_1", [
-      "gid://shopify/Product/1",
-    ]);
+    const conflicts = await findConflictingActiveOffers("shop_1", "off_1", {
+      shopifyProductIds: ["gid://shopify/Product/1"],
+    });
 
     expect(conflicts).toEqual([{ offerId: "off_2", name: "Existing offer" }]);
+  });
+
+  it("finds conflicting active offers sharing a variant", async () => {
+    offerFindMany.mockResolvedValue([{ id: "off_3", name: "Existing Mix & Match" }]);
+
+    const conflicts = await findConflictingActiveOffers("shop_1", "off_mm_1", {
+      shopifyVariantIds: ["gid://shopify/ProductVariant/1"],
+    });
+
+    expect(conflicts).toEqual([{ offerId: "off_3", name: "Existing Mix & Match" }]);
   });
 
   it("blocks activation when a conflicting active offer exists", async () => {
@@ -122,6 +209,7 @@ describe("offers.server", () => {
       shopId: "shop_1",
       status: "DRAFT",
       products: [{ shopifyProductId: "gid://shopify/Product/1" }],
+      variants: [],
       tiers: [],
     });
     offerCount.mockResolvedValue(0);
@@ -139,6 +227,7 @@ describe("offers.server", () => {
       shopId: "shop_1",
       status: "DRAFT",
       products: [{ shopifyProductId: "gid://shopify/Product/1" }],
+      variants: [],
       tiers: [],
     });
     offerCount.mockResolvedValue(0);
@@ -151,7 +240,13 @@ describe("offers.server", () => {
   });
 
   it("deletes only an offer owned by the requesting shop", async () => {
-    offerFindFirst.mockResolvedValue({ id: "off_1", shopId: "shop_1", tiers: [], products: [] });
+    offerFindFirst.mockResolvedValue({
+      id: "off_1",
+      shopId: "shop_1",
+      tiers: [],
+      products: [],
+      variants: [],
+    });
     offerDelete.mockResolvedValue({});
 
     await deleteOffer("shop_1", "off_1");

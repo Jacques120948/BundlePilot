@@ -3,49 +3,58 @@
 Answers: does BundlePilot need to create a "bundle parent product" in the
 merchant's catalog?
 
-## Decision: no bundle parent product in V1
+## Decision (revised in Phase 2): one hidden parent variant per Mix & Match offer
 
-Shopify's native bundle framework supports two shapes:
+Phase 0 originally concluded "no parent product at all" for Mix & Match,
+reasoning that `linesMerge` produces a purely synthetic grouping. Building
+the Cart Transform function in Phase 2 surfaced a correction: Shopify's
+`linesMerge` operation **requires a `parentVariantId`** — every one of
+Shopify's own reference implementations (the "Create a bundle app"
+tutorial's `component_parents` pattern, and the current
+metaobject-based "Merge bundle components" example in the Cart Transform
+docs) merges into a real, dedicated `ProductVariant` per bundle, not a
+shared placeholder or no variant at all. This doc is updated to match; the
+"no parent product" framing below is kept only as a record of what changed
+and why (see docs/ROADMAP.md for phase history).
 
-- **Fixed bundles**: a real parent product/variant with `requiresComponents`,
-  where the *customer* picks nothing (or only Shopify-native variant
-  options) — checkout adds the parent, Shopify expands it to components.
-- **Customized bundles**: the *app* is responsible for the storefront
-  picker, and the parent is typically a `linesMerge` **synthetic** grouping
-  produced by the Cart Transform function at cart time, not a catalog
-  product the merchant manages.
+So: **each `MIX_MATCH`/`MIX_MATCH_GROUPED` offer gets one hidden parent
+product + its single default variant**, created lazily on the offer's
+first publish:
 
-BundlePilot's Mix & Match is explicitly the second case — the merchant
-picks a pool/groups, the *customer* composes the bundle in the storefront
-widget. There is no fixed combination to model as a standing product, and
-creating one real "parent" product per possible combination is combinatorially
-infeasible (a 3-of-8 pool alone has 56 combinations). So V1 uses
-`linesMerge` to create the grouped line **only when the cart already
-contains a valid combination**, with no catalog-visible parent product at
-all — satisfying brief item 20 ("don't clutter the merchant's catalog with
-visible products").
+- Created via `productCreate` with `title = offer.publicTitle` and no
+  explicit variants (Shopify creates one default variant automatically);
+  the app then sets that variant's price to a nominal, non-zero amount
+  (Shopify's own bundle-parent guidance requires "price more than 0" —
+  the value is never charged to a customer, since the Cart Transform
+  operation's `price.percentageDecrease` always overrides the actual
+  charged amount at cart/checkout time from the real component prices).
+- **Never published** to any sales channel (Online Store, Shop, POS) —
+  created products are unpublished by default unless explicitly published,
+  so simply never calling `publishablePublish` keeps it out of the storefront,
+  search, and sitemaps, satisfying brief item 20 ("don't clutter the
+  merchant's catalog with visible products").
+- Stored as `Offer.shopifyParentProductId` / `Offer.shopifyParentVariantId`
+  and reused on every subsequent publish of that offer — never recreated.
+- Why one per offer rather than one shared across all Mix & Match offers
+  on a shop: Shopify's own examples model it per-bundle, and reusing a
+  single generic parent across genuinely different bundles would collapse
+  distinct bundle types into one line item identity in Shopify Admin
+  Orders/Analytics/returns — the same generic "Bundle" product would appear
+  regardless of which real bundle a customer bought.
 
-Quantity Break needs no parent product either — the existing product/variant
-*is* the whole offer.
+Quantity Break needs no parent product: the existing product/variant *is*
+the whole offer, and its enforcement (a Discount Function) never merges
+lines in the first place.
 
-## When a parent product would become necessary
+## FIXED_BUNDLE_PRICE (still deferred)
 
 If `FIXED_BUNDLE_PRICE` ships later (docs/BUNDLE_ARCHITECTURE.md "Discount
-types") using Shopify's native Fixed Bundle mechanism instead of a Cart
-Transform-computed price, that flow does need a real parent product per
-saved bundle. At that point:
-
-- The app would create one draft, unpublished (or minimally published)
-  product per Mix & Match offer, with `requiresComponents = true` and the
-  chosen component variants attached via `productVariantRelationshipBulkUpdate`
-  (or the then-current equivalent — verify against shopify.dev before
-  implementing).
-- That product would be hidden from the online store's default collections/
-  navigation (not published to the Online Store channel, or excluded via
-  the theme) so it doesn't appear as a duplicate, purchasable-standalone
-  product.
-- This is out of scope until FIXED_BUNDLE_PRICE is greenlit; tracked in
-  docs/ROADMAP.md Phase 2+.
+types") using Shopify's native Fixed Bundle mechanism (`requiresComponents`
++ `productVariantRelationshipBulkUpdate`) instead of a Cart
+Transform-computed price, it would reuse the same per-offer parent variant
+this doc already creates, just with `requiresComponents = true` and real
+component relationships attached — not a second parent product. Still
+gated on the multi-currency/tax verification in docs/BUNDLE_ARCHITECTURE.md.
 
 ## Metafield namespace ownership
 

@@ -1,0 +1,103 @@
+# HAND-WRITTEN partial schema for local reference and typegen fallback.
+#
+# Unlike extensions/quantity-break-discount/schema.graphql (a verbatim copy
+# of Shopify's official Discount API example schema), no equivalently fresh
+# full Cart Transform Function API schema.graphql was available to copy in
+# this environment — the only copies found (via a clone of
+# github.com/Shopify/function-examples) targeted the retired 2024-04
+# `purchase.cart-transform.run` target and use outdated field/operation
+# names (`expand` instead of `lineExpand`, no `attribute`/`linesMerge`).
+# This file instead declares only the types
+# extensions/mix-match-cart-transform/src actually queries/returns, each
+# checked field-by-field against the current Cart Transform Function API
+# reference docs (see docs/CART_TRANSFORM.md "Verification status").
+#
+# Replace this file with the real generated schema via
+# `shopify app function typegen` once this app is linked to a Partner org.
+
+schema {
+  query: Input
+}
+
+type Input {
+  cart: Cart!
+}
+
+type Cart {
+  lines: [CartLine!]!
+}
+
+type CartLine {
+  id: ID!
+  quantity: Int!
+  cost: CartLineCost!
+  merchandise: Merchandise!
+  attribute(key: String!): Attribute
+}
+
+type CartLineCost {
+  amountPerQuantity: MoneyV2!
+}
+
+type MoneyV2 {
+  amount: Decimal!
+}
+
+scalar Decimal
+
+type Attribute {
+  key: String!
+  value: String
+}
+
+union Merchandise = ProductVariant | CustomProduct
+
+type CustomProduct {
+  id: ID!
+}
+
+type ProductVariant implements HasMetafields {
+  id: ID!
+  metafield(namespace: String, key: String!): Metafield
+}
+
+interface HasMetafields {
+  metafield(namespace: String, key: String!): Metafield
+}
+
+type Metafield {
+  value: String!
+  jsonValue: JSON!
+}
+
+scalar JSON
+
+# --- Function output (CartTransformRunResult) ---
+
+type CartTransformRunResult {
+  operations: [CartOperation!]!
+}
+
+input CartOperation @oneOf {
+  linesMerge: LinesMergeOperation
+}
+
+input LinesMergeOperation {
+  cartLines: [CartLineInput!]!
+  parentVariantId: ID!
+  title: String
+  price: MergePriceAdjustment
+}
+
+input CartLineInput {
+  cartLineId: ID!
+  quantity: Int!
+}
+
+input MergePriceAdjustment @oneOf {
+  percentageDecrease: PercentageDecrease
+}
+
+input PercentageDecrease {
+  value: Decimal!
+}
