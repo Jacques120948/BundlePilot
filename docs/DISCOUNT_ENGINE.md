@@ -56,11 +56,56 @@ This matches brief item 24's requirement and the acceptance test in item
 
 ## Scope: which products/variants a Quantity Break applies to
 
-The function input query includes each cart line's product/variant ID and
-compares it against the offer's configured scope (`OfferProduct`/
-`OfferVariant`, mirrored into the discount's metafield as a list of variant
-GIDs, or `"ALL_VARIANTS"` for "apply to all variants of this product").
-Lines outside the scope are left untouched.
+V1 scopes a Quantity Break at the **product** level: the function-
+configuration metafield carries a `productIds` array (built by
+`app/lib/shopify/quantity-break-config.ts#buildFunctionConfiguration` from
+the offer's `OfferProduct` rows), and the function
+(`extensions/quantity-break-discount/src/cart_lines_discounts_generate_run.ts`)
+matches each cart line's `merchandise.product.id` against it — every
+variant of a selected product qualifies. The `OfferVariant` table already
+models a future variant-level restriction ("apply to these specific
+variants only"), but the Phase 1 builder UI doesn't expose picking
+individual variants yet; that's a fast-follow, not a schema change.
+
+## Storefront display metafield
+
+The tier config above lives on the **discount** and is never
+storefront-readable (Liquid/Storefront API can't reach a discount's
+metafields) — it exists purely for the Function. So the storefront block
+needs its *own* copy of the tiers to render, which
+`app/lib/shopify/quantity-break-sync.server.ts#syncQuantityBreakDisplayMetafields`
+writes to a **product** metafield (`$app`/`quantity-break-display`,
+declared in `shopify.app.toml` with `access.storefront = "public_read"`)
+whenever an offer is published or edited. The Theme App Extension
+(`extensions/bundlepilot-theme`) reads this via
+`product.metafields.app.quantity-break-display` in Liquid and never talks
+to the discount metafield at all.
+
+This is a deliberate duplication, not a shortcut: the display copy can
+never grant a discount by itself (the storefront never sends it back to
+the cart/checkout — only a variant id + quantity go to `/cart/add.js`), so
+it carries no security weight. It exists solely so the widget can render
+tier prices without an extra app-server round trip. See
+docs/SECURITY.md "Cart security" for why the actual discount can only ever
+come from the Function re-reading its own metafield.
+
+## Verification status
+
+The GraphQL mutation shapes here (`discountAutomaticAppCreate/Update`,
+`discountAutomaticActivate/Deactivate`, `shopifyFunctions`, `metafieldsSet`)
+were hand-verified field-by-field against the current Admin GraphQL API
+reference docs, but this sandbox has no Shopify Partner org linked, so
+none of this — the sync code, the Function, or the storefront block — has
+been exercised end-to-end against a real dev store. Before relying on this
+in production:
+
+1. Link the app to a Partner org (`npm run config:link`) and deploy
+   (`shopify app deploy`) so the Quantity Break function actually exists
+   for `getQuantityBreakFunctionId` to find.
+2. Run `shopify app function typegen` inside
+   `extensions/quantity-break-discount` and replace the hand-written
+   `generated/api.ts` with the real generated types.
+3. Run the brief item 89 acceptance test on a dev store end to end.
 
 ## Combination rules
 

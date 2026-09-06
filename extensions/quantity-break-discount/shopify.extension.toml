@@ -1,0 +1,17 @@
+api_version = "2026-07"
+
+[[extensions]]
+name = "BundlePilot: Quantity Break"
+handle = "bundlepilot-quantity-break"
+type = "function"
+uid = "88c7ecd8-6220-4332-b92e-f7c729aa1597"
+description = "Applies the merchant's quantity-break tiers to cart lines. Never trusts client-supplied discount data — see docs/DISCOUNT_ENGINE.md."
+
+  [[extensions.targeting]]
+  target = "cart.lines.discounts.generate.run"
+  input_query = "src/cart_lines_discounts_generate_run.graphql"
+  export = "cart-lines-discounts-generate-run"
+
+  [extensions.build]
+  command = ""
+  path = "dist/function.wasm"

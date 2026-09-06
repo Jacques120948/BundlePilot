@@ -106,6 +106,7 @@ filter every query by it — see docs/SECURITY.md "Multi-tenant isolation".
 - docs/DISCOUNT_ENGINE.md — Quantity Break Discount Function
 - docs/CART_TRANSFORM.md — Mix & Match Cart Transform Function
 - docs/BUNDLE_PRODUCT_MODEL.md — whether/how a bundle parent product is used
+- docs/THEME_EXTENSION.md — storefront app blocks
 - docs/SECURITY.md — tenant isolation, cart tampering, webhook verification
 - docs/DATABASE.md — schema rationale
 - docs/BILLING.md — Shopify App Pricing integration

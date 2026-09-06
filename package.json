@@ -18,7 +18,9 @@
     "graphql-codegen": "graphql-codegen",
     "vite": "vite",
     "typecheck": "react-router typegen && tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:functions": "npm test --workspaces --if-present",
+    "test:all": "npm run test && npm run test:functions"
   },
   "type": "module",
   "engines": {

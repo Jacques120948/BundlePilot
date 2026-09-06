@@ -24,7 +24,7 @@ Grouped Mix & Match offer gets one metafield:
 
 ```
 namespace: "$app" (BundlePilot's reserved namespace, see docs/BUNDLE_PRODUCT_MODEL.md)
-key:       "bundle_component"
+key:       "bundle-component"
 type:      json
 value: {
   "offerId": "off_abc123",
@@ -47,7 +47,7 @@ For a flat `MIX_MATCH` offer, `groups` has a single entry covering the
 whole pool. Every variant that belongs to the offer carries the **same**
 snapshot (denormalized), so the query cost of validating a bundle scales
 with **cart size**, not with how many offers exist on the shop: the
-function only ever fetches the `bundle_component` metafield for variants
+function only ever fetches the `bundle-component` metafield for variants
 that are actually in the cart.
 
 This mirrors Shopify's own "Create a bundle app" tutorial pattern
@@ -77,7 +77,7 @@ client-supplied, to decide *whether* a discount applies. Concretely, for
 each distinct `_bp_offer` + `_bp_session` combination present in the cart:
 
 1. Collect every cart line claiming that `(offer, session)` pair.
-2. For each such line, read that line's own variant's `bundle_component`
+2. For each such line, read that line's own variant's `bundle-component`
    metafield (server-side truth). If a line claims an offer its variant's
    own metafield doesn't reference (or the variant has no such metafield at
    all), that line is dropped from the candidate set — a tampered property
@@ -102,7 +102,7 @@ line-item properties are a *routing hint*, not a *trust boundary*.
 ## Tiers (volume discounts on top of Mix & Match)
 
 When an offer defines tiers ("choose 2 → 10%, choose 3 → 15%, choose 4 →
-20%") instead of one flat discount, `bundle_component.tiers` replaces
+20%") instead of one flat discount, `bundle-component.tiers` replaces
 `discountType`/`discountValue` with a list, and the function selects the
 highest tier whose `quantity` the verified item count meets — mirroring the
 Quantity Break tier-selection logic in docs/DISCOUNT_ENGINE.md. Tiers never

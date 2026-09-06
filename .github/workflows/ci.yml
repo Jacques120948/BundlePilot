@@ -52,8 +52,12 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
-      - name: Unit tests
-        run: npm test
+      - name: Unit tests (app + Shopify Functions)
+        run: npm run test:all
+
+      - name: Typecheck Shopify Functions
+        run: npx tsc --noEmit
+        working-directory: extensions/quantity-break-discount
 
       - name: Build
         run: npm run build

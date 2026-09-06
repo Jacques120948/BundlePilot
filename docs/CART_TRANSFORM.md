@@ -28,7 +28,7 @@ query Input {
         __typename
         ... on ProductVariant {
           id
-          bundleComponent: metafield(namespace: "$app", key: "bundle_component") {
+          bundleComponent: metafield(namespace: "$app", key: "bundle-component") {
             jsonValue
           }
         }

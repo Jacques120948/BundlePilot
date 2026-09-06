@@ -40,5 +40,18 @@ api_version = "2026-07"
   uri = "/webhooks/shop/redact"
   compliance_topics = ["shop/redact"]
 
+# App-owned metafield definitions. See docs/BUNDLE_PRODUCT_MODEL.md and
+# app/lib/shopify/metafields.ts for the full namespace/key reference.
+# Declaring this via TOML (rather than only at metafieldsSet time) is what
+# makes it editable/typed in the Admin UI and exposed to Liquid via
+# `product.metafields.app.quantity-break-display` — see
+# https://shopify.dev/docs/apps/build/metafields/definitions
+[product.metafields.app.quantity-break-display]
+name = "BundlePilot: Quantity Break display"
+description = "App-computed tier/title cache for the BundlePilot Quantity Break storefront block. Not merchant-editable."
+type = "json"
+access.admin = "merchant_read"
+access.storefront = "public_read"
+
 [build]
 include_config_on_deploy = true

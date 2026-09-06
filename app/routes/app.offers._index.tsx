@@ -1,15 +1,12 @@
 import type { LoaderFunctionArgs } from "react-router";
 import { useLoaderData } from "react-router";
 import { requireTenant } from "../lib/tenant.server";
-import db from "../db.server";
+import { listOffers } from "../lib/offers.server";
 import { OFFER_TYPE_LABELS } from "../lib/offer-types";
 
 export const loader = async (args: LoaderFunctionArgs) => {
   const { shop } = await requireTenant(args);
-  const offers = await db.offer.findMany({
-    where: { shopId: shop.id },
-    orderBy: { updatedAt: "desc" },
-  });
+  const offers = await listOffers(shop.id);
   return { offers };
 };
 
@@ -31,7 +28,8 @@ export default function OffersIndex() {
           <s-unordered-list>
             {offers.map((offer) => (
               <s-list-item key={offer.id}>
-                {offer.name} — {OFFER_TYPE_LABELS[offer.type]} — {offer.status}
+                <s-link href={`/app/offers/${offer.id}`}>{offer.name}</s-link> —{" "}
+                {OFFER_TYPE_LABELS[offer.type]} — {offer.status}
               </s-list-item>
             ))}
           </s-unordered-list>

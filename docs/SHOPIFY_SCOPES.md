@@ -6,7 +6,7 @@ never request the paired `read_*` scope alongside a `write_*` one.
 
 | Scope | Reason | Feature | Required/Optional |
 |---|---|---|---|
-| `write_products` | Read/write products, variants, and **variant metafields** (`$app:bundle_component`) that carry the Mix & Match validation config the Cart Transform function reads. Also needed to read product/variant data for the Resource Picker and pricing display. | Offer builder (product/variant selection), Mix & Match enforcement | Required |
+| `write_products` | Read/write products, variants, and **variant metafields** (`$app` namespace, `bundle-component` key) that carry the Mix & Match validation config the Cart Transform function reads. Also needed to read product/variant data for the Resource Picker and pricing display. | Offer builder (product/variant selection), Mix & Match enforcement | Required |
 | `write_discounts` | Create/manage the `discountAutomaticApp` per Quantity Break offer, including its configuration metafield. | Quantity Break enforcement | Required |
 | `write_cart_transforms` | Register and manage the single Cart Transform function used for Mix & Match / Grouped Mix & Match. | Mix & Match / Grouped Mix & Match enforcement | Required |
 

@@ -49,17 +49,30 @@ saved bundle. At that point:
 
 ## Metafield namespace ownership
 
-All BundlePilot metafields/metaobjects use the reserved `$app` namespace
-prefix (resolves to an app-owned namespace unique per app, per Shopify's
-metafield conventions) so no other app or merchant edit can collide with
-our data. Locally, `app/lib/branding.ts#METAFIELD_NAMESPACE` documents the
-literal string used in code for readability; the functional namespace at
-the API level is always the `$app:` reserved prefix, not a manually chosen
-string, to get Shopify's collision guarantees.
+All BundlePilot metafields use the literal namespace `"$app"` (see
+`app/lib/shopify/metafields.ts#METAFIELD_NAMESPACE_APP`) — Shopify resolves
+this server-side to a namespace unique to this app installation, so it's
+usable verbatim in every shop without a per-app string to configure or any
+collision risk with another app's data. Keys (not the namespace) are what
+distinguish our different pieces of data — see
+`app/lib/shopify/metafields.ts#METAFIELD_KEYS` for the single source of
+truth.
 
-| Owner | Namespace.key | Type | Purpose |
-|---|---|---|---|
-| ProductVariant | `$app:bundle_component` | json | Denormalized Mix & Match / Grouped offer config (docs/MIX_MATCH_ENGINE.md) |
-| Discount (`discountAutomaticApp`) | `$app:function-configuration` | json | Quantity Break tier config (docs/DISCOUNT_ENGINE.md) |
+| Owner | Key | Type | Storefront-readable? | Purpose |
+|---|---|---|---|---|
+| Discount (`discountAutomaticApp`) | `function-configuration` | json | No (Function-only) | Quantity Break tier config, read by the Discount Function's input query (docs/DISCOUNT_ENGINE.md) |
+| Product | `quantity-break-display` | json | Yes — declared via TOML in `shopify.app.toml` with `access.storefront = "public_read"`, read in Liquid as `product.metafields.app.quantity-break-display` | Cached tiers/title for the Theme App Extension to render; never used for enforcement (docs/DISCOUNT_ENGINE.md "Storefront display metafield") |
+| ProductVariant | `bundle-component` | json | No (Function-only) | Denormalized Mix & Match / Grouped offer config (docs/MIX_MATCH_ENGINE.md) — Phase 2 |
+
+Only the `quantity-break-display` product metafield has a TOML-declared
+definition (`[product.metafields.app.quantity-break-display]` in
+`shopify.app.toml`) — that's what makes it visible/typed in the Shopify
+admin and accessible from Liquid via the `product.metafields.app.*`
+accessor. The Function-only metafields (`function-configuration`,
+`bundle-component`) are written ad hoc via `metafieldsSet` with an inline
+`type` on each write; they don't need an admin-visible definition since no
+human ever reads or edits them directly, and Shopify Function input
+queries can read any metafield by namespace+key regardless of whether a
+definition exists.
 
 No metafields are written on `Shop`, `Customer`, or `Order` in V1.

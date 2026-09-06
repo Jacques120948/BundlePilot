@@ -1,0 +1,62 @@
+{%- comment -%}
+  BundlePilot Quantity Break app block.
+
+  Reads the storefront-readable display metafield BundlePilot writes on
+  publish (app/lib/shopify/quantity-break-sync.server.ts) — this metafield
+  is DISPLAY-ONLY. The real discount is computed by the Discount Function
+  at checkout from a completely separate metafield on the discount itself;
+  nothing this block renders is trusted for pricing. See
+  docs/DISCOUNT_ENGINE.md "Storefront display metafield".
+
+  Liquid can't use dot notation with a hyphenated key, hence the bracket
+  access below.
+{%- endcomment -%}
+{%- assign qb_metafield = product.metafields.app['quantity-break-display'] -%}
+{%- if qb_metafield != blank and product.selected_or_first_available_variant -%}
+  {%- assign variant = product.selected_or_first_available_variant -%}
+  <div
+    class="bundlepilot-qb"
+    style="--bundlepilot-accent: {{ block.settings.accent_color }};"
+    data-bundlepilot-quantity-break
+    data-config="{{ qb_metafield.value | json | escape }}"
+    data-variant-id="{{ variant.id }}"
+    data-unit-price="{{ variant.price }}"
+    data-currency="{{ cart.currency.iso_code | default: shop.currency }}"
+    data-show-savings="{{ block.settings.show_savings }}"
+    {{ block.shopify_attributes }}
+  >
+    <div class="bundlepilot-qb__tiers" data-bundlepilot-tiers>
+      <p class="bundlepilot-qb__loading">{{ 'Loading offer…' }}</p>
+    </div>
+    <button type="button" class="bundlepilot-qb__add" data-bundlepilot-add disabled>
+      {{ 'Add to cart' }}
+    </button>
+    <p class="bundlepilot-qb__error" data-bundlepilot-error hidden></p>
+  </div>
+{%- endif -%}
+
+{% schema %}
+{
+  "name": "BundlePilot: Quantity Break",
+  "target": "section",
+  "stylesheet": "quantity-break.css",
+  "javascript": "quantity-break.js",
+  "enabled_on": {
+    "templates": ["product"]
+  },
+  "settings": [
+    {
+      "type": "checkbox",
+      "id": "show_savings",
+      "label": "Show savings amount",
+      "default": true
+    },
+    {
+      "type": "color",
+      "id": "accent_color",
+      "label": "Accent color",
+      "default": "#1a1a1a"
+    }
+  ]
+}
+{% endschema %}

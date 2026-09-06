@@ -36,7 +36,7 @@ per-offer-type mechanics. Concretely, this means:
 - The worked "cheat test" (brief item 80): a customer edits `_bp_offer`
   or adds a fake `_bp_discount=50` attribute — the Cart Transform function
   doesn't read any such field, so the discount stays at whatever the
-  merchant's `bundle_component` metafield says (15% in the example),
+  merchant's `bundle-component` metafield says (15% in the example),
   regardless of what the browser sent. This should become an explicit
   Function fixture test in Phase 2 (docs/BUNDLE_LIMITATIONS.md-adjacent
   test fixtures, tracked in the Phase 2 test plan).
@@ -56,11 +56,13 @@ directly on a webhook route.
 - All admin form input is validated server-side before it reaches Prisma
   (bounds checks in docs/BUNDLE_ARCHITECTURE.md "Admin validation") —
   client-side validation is UX only.
-- React (both admin and, once built, the theme extension's preact-based
-  components) auto-escapes interpolated content; we do not use
-  `dangerouslySetInnerHTML`/`innerHTML` anywhere merchant- or
-  customer-supplied text (offer titles/descriptions/custom labels) is
-  rendered.
+- React auto-escapes interpolated content in the admin; we do not use
+  `dangerouslySetInnerHTML`. The storefront Theme App Extension is plain
+  Liquid + vanilla JS — Liquid auto-escapes by default, and
+  `quantity-break.js` never uses `innerHTML`: merchant-authored strings
+  (offer title, tier labels) and computed numbers alike are inserted via
+  `textContent`/`createTextNode`, so a merchant typing HTML into a tier
+  label can't inject markup into their own storefront.
 - Prisma's parameterized queries are used exclusively — no raw SQL string
   concatenation anywhere in the codebase.
 

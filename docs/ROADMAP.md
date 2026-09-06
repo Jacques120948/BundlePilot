@@ -26,17 +26,41 @@ a summary — never hand off a broken build to the next phase.
 **Not built yet**: any offer builder form, any Shopify Function, any theme
 extension, any real billing integration, any analytics event ingestion.
 
-## Phase 1 — Quantity Breaks
+## Phase 1 — Quantity Breaks (built; live verification pending)
 
-- Offer CRUD (create/edit/list/delete) for `QUANTITY_BREAK`.
-- Resource Picker-based product/variant selection (manual + collection
-  modes).
-- Tier editor with admin validation (docs/BUNDLE_ARCHITECTURE.md).
-- Discount Function extension (`cart.lines.discounts.generate.run`),
-  scaffolded and deployed, implementing docs/DISCOUNT_ENGINE.md.
-- Theme App Extension: Quantity Break block (radio tiers + Add to cart).
-- Fixture tests for the Function (valid/invalid/expired/inactive cases).
-- MVP acceptance test from brief item 89 passes end-to-end on a dev store.
+Delivered:
+
+- Offer CRUD (create/edit/pause/delete; product-level scope via the
+  Resource Picker, manual selection only) — `app/lib/offers.server.ts`,
+  `app/routes/app.offers.*.tsx`, `app/components/QuantityBreakBuilder.tsx`.
+- Tier editor with server-side admin validation
+  (`app/lib/validation/quantity-break.ts`, docs/BUNDLE_ARCHITECTURE.md).
+- Discount Function extension (`extensions/quantity-break-discount`,
+  `cart.lines.discounts.generate.run`), implementing
+  docs/DISCOUNT_ENGINE.md, with unit tests reproducing the brief item 77
+  acceptance numbers exactly (100/180/255/320/400 CHF) and the item 80
+  cheat-test invariant.
+- Theme App Extension Quantity Break block
+  (`extensions/bundlepilot-theme`) — see docs/THEME_EXTENSION.md.
+- Shopify sync layer (`app/lib/shopify/quantity-break-sync.server.ts`):
+  discount create/update/pause/resume + both metafield writes.
+
+Deferred to a fast-follow within Phase 1 scope (not blocking Phase 2):
+
+- Collection-based selection mode and variant-level scoping (the schema
+  and `SelectionMode`/`OfferVariant` already support both; only the
+  builder UI doesn't expose them yet).
+- Conflict-check UI (`View offer` / `Deactivate offer` / `Continue only if
+  safe` per brief item 36) — the backend check
+  (`findConflictingActiveOffers`) exists and blocks activation; the admin
+  currently only surfaces the error message, not the three actions.
+
+**Not independently verified end-to-end** (no Shopify Partner org linked
+in the environment this was built in — see docs/DISCOUNT_ENGINE.md
+"Verification status" and docs/THEME_EXTENSION.md "Verification status"):
+link the app, `shopify app deploy`, run `shopify app function typegen`,
+and walk the brief item 89 acceptance test on a real dev store before
+treating this phase as done.
 
 ## Phase 2 — Mix & Match core
 

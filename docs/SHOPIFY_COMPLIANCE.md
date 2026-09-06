@@ -21,7 +21,7 @@ Shopify's own documentation always overrides this file if they've diverged
 - [x] GraphQL Admin API only; no REST Admin API calls anywhere in the code
       base (verify again before each phase ships new server code).
 - [x] Minimum access scopes requested — see docs/SHOPIFY_SCOPES.md.
-- [ ] Discount creation goes through the embedded app's own UI, never a
+- [x] Discount creation goes through the embedded app's own UI, never a
       generic "create discount" link that lands outside the app (App Store
       discount-app requirement) — enforced by design in Phase 1 (Offer
       builder is the only discount-creation surface).
@@ -67,16 +67,17 @@ Shopify's own documentation always overrides this file if they've diverged
 
 ## Theme App Extensions
 
-- [ ] App blocks (not legacy ScriptTag/Asset injection) for all storefront
-      UI — tracked from Phase 3 onward, verify no ScriptTag/Asset REST
-      calls are ever added.
+- [x] App blocks (not legacy ScriptTag/Asset injection) for storefront UI —
+      Quantity Break block shipped in Phase 1 (extensions/bundlepilot-theme);
+      Mix & Match blocks land in Phases 3-4. No ScriptTag/Asset REST calls
+      anywhere in the code base.
 - [ ] "Add to my theme" deep link implemented (Phase 3).
 
 ## Design / UX
 
-- [ ] Admin UI uses Polaris web components exclusively (no custom
-      component library) to match Shopify admin look-and-feel — true today
-      by construction (Phase 0 scaffold), keep true through later phases.
+- [x] Admin UI uses Polaris web components exclusively (no custom
+      component library) — true through Phase 1's Offer builder as well as
+      the Phase 0 scaffold; keep true through later phases.
 - [ ] Mobile-responsive admin and storefront widget verified at 320/375/430
       px + tablet/desktop (Phase 5).
 - [ ] Accessibility pass (keyboard nav, ARIA, contrast) — Phase 5.
