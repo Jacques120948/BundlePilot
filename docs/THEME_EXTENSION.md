@@ -1,10 +1,10 @@
 # Theme App Extension
 
 One theme app extension (`extensions/bundlepilot-theme`), one app block per
-offer type. Phase 1 ships the Quantity Break block; Mix & Match and Grouped
-Mix & Match blocks follow in Phases 3-4 as separate blocks in the same
-extension (the 30-block-per-extension cap in docs/BUNDLE_LIMITATIONS.md
-gives plenty of headroom).
+offer type. Phase 1 shipped the Quantity Break block; Phase 3 adds the Mix
+& Match block; Grouped Mix & Match reuses the same block in Phase 4 (the
+30-block-per-extension cap in docs/BUNDLE_LIMITATIONS.md gives plenty of
+headroom).
 
 ## Quantity Break block
 
@@ -62,19 +62,83 @@ unsellable variant. `quantity-break.js` surfaces that as
 trace or internal error) and re-enables the Add to cart button so the
 customer isn't stuck.
 
-## Adding the block to a theme
+## Mix & Match block (Phase 3)
 
-Merchants add it manually via Theme Editor → Add block → Apps →
-BundlePilot: Quantity Break, on any product template. A one-click deep
-link ("Add BundlePilot to my theme" from Settings, per brief item 46) is
-planned but not implemented in Phase 1 — `app/routes/app.settings.tsx`
-currently links to the generic theme editor apps panel
-(`shopify://admin/themes/current/editor?context=apps`) as an interim step.
+- `blocks/mix-match.liquid` — targets `"section"` too, but with no
+  `enabled_on.templates` restriction: a Mix & Match bundle spans many
+  products, so it has no single product page of its own. Merchants add it
+  to any page (typically a dedicated "Build a bundle" page). Settings:
+  `bundle_id` (text, optional — disambiguates when a shop has more than
+  one active bundle), `show_savings` (checkbox), `accent_color` (color).
+- `assets/mix-match.js` — vanilla JS: reads the **shop-level**
+  `shop.metafields.app['mix-match-bundles']` metafield (a map of every
+  active Mix & Match offer, keyed by offer id — see
+  docs/MIX_MATCH_ENGINE.md "Storefront display metafield"), picks the
+  bundle to render (`bundle_id` setting, or the sole active bundle if only
+  one exists), and renders a product grid with steppers (when
+  `allowDuplicates`) or checkboxes (when not), a live progress indicator
+  ("2 / 3 selected"), a "Bundle complete ✓" badge once `minItems` is met,
+  and a live regular/savings/bundle price summary recomputed from the
+  same tier logic as the Function (docs/MIX_MATCH_ENGINE.md "Tiers").
+- `assets/mix-match.css` — scoped under `.bundlepilot-mm`, same
+  mobile-first / 44px-touch-target approach as the Quantity Break block,
+  with a tighter grid breakpoint at 375px.
+
+### Add to cart / session grouping
+
+"Add bundle to cart" posts every selected variant in a single
+`/cart/add.js` call, each line tagged with two properties:
+
+```
+_bp_offer   = <offer id>            // which bundle this line belongs to
+_bp_session = <crypto.randomUUID()> // groups lines from the same click
+```
+
+A fresh `_bp_session` is generated per "Add to cart" click (not per page
+load), so adding the same bundle twice in a row creates two independent,
+separately-validated groups rather than merging into one. As with Quantity
+Break, nothing about the discount amount is sent — only variant ids,
+quantities, and these two routing properties; see
+docs/MIX_MATCH_ENGINE.md "Why the client-declared offer/session id is safe
+to use as a lookup key" for how the Cart Transform function treats them as
+untrusted.
+
+### Cart-removal / quantity-change behavior (brief items 44-45, 81)
+
+The block itself has no cart-editing UI (removal happens on Shopify's own
+cart/checkout pages). Because the Cart Transform function recomputes the
+bundle from scratch on every cart mutation (docs/CART_TRANSFORM.md
+"Recomputation on every mutation"), removing a component or dropping a
+line's quantity below what was added simply means that `(offer, session)`
+group no longer satisfies `minItems`/group `min` on the next run — the
+discount stops being emitted automatically, with no separate
+"uninstall the bundle" code path. This is exercised by the Cart Transform
+Function's own unit tests (brief item 81 scenario, see
+`extensions/mix-match-cart-transform/src/cart_transform_run.test.ts`); it
+still needs to be watched once in a real cart during live verification.
+
+## Adding the blocks to a theme
+
+Merchants can add either block manually via Theme Editor → Add block →
+Apps → BundlePilot: Quantity Break / BundlePilot: Mix & Match. As of
+Phase 3, `app/routes/app.settings.tsx` also renders two one-click
+"Add … to my theme" deep links (brief item 46) built from
+`SHOPIFY_API_KEY` at request time — no hardcoded client id — using the
+format documented at
+shopify.dev/docs/apps/build/online-store/theme-app-extensions/configuration#app-block-deep-linking:
+
+- Quantity Break → `?template=product&addAppBlockId={api_key}/quantity-break&target=mainSection`
+- Mix & Match → `?template=page&addAppBlockId={api_key}/mix-match&target=newAppsSection`
+
+If the app isn't yet linked to a Partner app (`SHOPIFY_API_KEY` unset),
+the Settings page shows a warning instead of broken links, pointing the
+merchant/developer at `shopify app config link`.
 
 ## Verification status
 
 Not exercised in a live theme in this environment (no Partner org/dev
 store linked here — see docs/DISCOUNT_ENGINE.md "Verification status").
-Verify the block renders, the price preview matches the Function's actual
-checkout discount, and Add to cart works, on a real dev store before
-relying on this.
+Verify both blocks render, the price preview matches the Function's actual
+checkout discount, Add to cart works, the deep links land on the right
+block in the Theme Editor, and cart-removal behavior (Mix & Match) on a
+real dev store before relying on this.

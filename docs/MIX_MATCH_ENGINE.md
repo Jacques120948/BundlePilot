@@ -118,6 +118,62 @@ above naturally fails the `minItems` check on the next run and the
 `linesMerge`/discount stops being emitted. See docs/CART_TRANSFORM.md
 "Recomputation on every mutation" for the mechanics.
 
+## Storefront display metafield (Phase 3)
+
+The `bundle-component` metafield above exists purely for the Cart
+Transform Function to verify a discount — it is never read by the
+storefront (`access.storefront` is not even granted on it). Mix & Match
+needs a *separate*, deliberately display-only channel for the storefront
+block to render a bundle picker, because unlike Quantity Break (one
+product → one metafield → one block instance) a Mix & Match bundle spans
+many products with no single product page to attach a metafield to.
+
+That channel is a **shop-level** metafield,
+`shop.metafields.app['mix-match-bundles']` (namespace `$app`, key
+`mix-match-bundles`, `access.storefront = public_read`), holding a map of
+*every currently active* Mix & Match offer for the shop, keyed by offer
+id:
+
+```json
+{
+  "off_abc123": {
+    "offerId": "off_abc123",
+    "publicTitle": "Build your gift box",
+    "description": "...",
+    "minItems": 3,
+    "maxItems": 3,
+    "allowDuplicates": false,
+    "discountType": "PERCENTAGE",
+    "discountValue": 15,
+    "tiers": [...],
+    "products": [
+      { "variantId": "gid://shopify/ProductVariant/1", "title": "...", "imageUrl": "...", "price": "12.00" }
+    ]
+  }
+}
+```
+
+`app/lib/shopify/mix-match-display-config.ts` builds this map (pure
+function, unit tested); `app/lib/shopify/mix-match-display-sync.server.ts`
+does a **full rewrite** of the metafield on every publish, pause, and
+delete of a Mix & Match offer (`app/lib/mix-match-publish.server.ts` and
+the delete branch of `app/routes/app.offers.$id.tsx`) — never an
+incremental patch, so a stale entry can't survive an offer going away.
+
+Because this metafield only ever describes offers, never a cart or a
+specific customer's state, tampering with it client-side is meaningless:
+the worst a customer could do is make the *preview* look wrong, since
+`mix-match.js` never sends any of these fields to the cart — only variant
+ids/quantities and the `_bp_offer`/`_bp_session` routing pair the Cart
+Transform Function independently re-verifies (see "Why the
+client-declared offer/session id is safe to use as a lookup key" above).
+
+When a shop has more than one active Mix & Match bundle, the theme
+block's `bundle_id` setting (a value the merchant copies from the Offer
+detail page in the admin) tells `mix-match.js` which map entry to render;
+with exactly one active bundle it falls back to that one automatically —
+see docs/THEME_EXTENSION.md "Mix & Match block".
+
 ## Discount types
 
 - `PERCENTAGE` and `FIXED_AMOUNT`: implemented in V1. Allocated across the

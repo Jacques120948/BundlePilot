@@ -15,6 +15,8 @@ export const METAFIELD_KEYS = {
   quantityBreakFunctionConfiguration: "function-configuration",
   /** On each covered Product — read by the Theme App Extension for display only. */
   quantityBreakDisplay: "quantity-break-display",
-  /** On each Mix & Match component ProductVariant — read by the Cart Transform Function (Phase 2). */
+  /** On each Mix & Match component ProductVariant — read by the Cart Transform Function. */
   bundleComponent: "bundle-component",
+  /** On the Shop — read by the Theme App Extension's Mix & Match builder block for display only. */
+  mixMatchBundlesDisplay: "mix-match-bundles",
 } as const;

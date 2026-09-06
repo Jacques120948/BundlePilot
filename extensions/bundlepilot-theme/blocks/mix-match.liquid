@@ -1,0 +1,59 @@
+{%- comment -%}
+  BundlePilot Mix & Match bundle builder app block.
+
+  Unlike the Quantity Break block (which lives on a single product page),
+  a Mix & Match bundle spans many products with no product page of its
+  own, so its display config lives on a SHOP-level metafield instead of a
+  product metafield — see docs/MIX_MATCH_ENGINE.md "Storefront display
+  metafield". This is display-only: the real discount is computed by the
+  Cart Transform Function at checkout from a completely separate
+  per-variant metafield. Nothing this block renders is trusted for
+  pricing — see docs/SECURITY.md "Cart security".
+
+  Add this block to a dedicated page (Theme Editor → Pages → your "Build a
+  bundle" page → Add block → Apps → BundlePilot: Mix & Match). If a shop
+  has more than one active Mix & Match bundle, set "Bundle ID" in the
+  block settings (copy it from BundlePilot → Offers → your bundle) to
+  choose which one this instance of the block shows.
+{%- endcomment -%}
+<div
+  class="bundlepilot-mm"
+  style="--bundlepilot-accent: {{ block.settings.accent_color }};"
+  data-bundlepilot-mix-match
+  data-config="{{ shop.metafields.app['mix-match-bundles'].value | json | escape }}"
+  data-bundle-id="{{ block.settings.bundle_id }}"
+  data-currency="{{ cart.currency.iso_code | default: shop.currency }}"
+  data-show-savings="{{ block.settings.show_savings }}"
+  {{ block.shopify_attributes }}
+>
+  <p class="bundlepilot-mm__loading">{{ 'Loading…' }}</p>
+</div>
+
+{% schema %}
+{
+  "name": "BundlePilot: Mix & Match",
+  "target": "section",
+  "stylesheet": "mix-match.css",
+  "javascript": "mix-match.js",
+  "settings": [
+    {
+      "type": "text",
+      "id": "bundle_id",
+      "label": "Bundle ID (optional)",
+      "info": "Copy this from BundlePilot → Offers → your bundle. Leave blank if this store has only one active Mix & Match bundle."
+    },
+    {
+      "type": "checkbox",
+      "id": "show_savings",
+      "label": "Show savings amount",
+      "default": true
+    },
+    {
+      "type": "color",
+      "id": "accent_color",
+      "label": "Accent color",
+      "default": "#1a1a1a"
+    }
+  ]
+}
+{% endschema %}

@@ -7,6 +7,7 @@ import {
   ensureMixMatchParentVariant,
   syncMixMatchVariantMetafields,
 } from "./shopify/mix-match-sync.server";
+import { resyncMixMatchBundlesDisplay } from "./shopify/mix-match-display-sync.server";
 
 type OwnedOffer = Awaited<ReturnType<typeof getOwnedOffer>>;
 
@@ -84,6 +85,7 @@ export async function publishMixMatchOffer(
     }
 
     await syncMixMatchVariantMetafields(admin, toConfigOffer(offer), previousVariantIds, true);
+    await resyncMixMatchBundlesDisplay(admin, shopId);
   } catch (error) {
     await db.offer.update({ where: { id: offer.id }, data: { status: "DRAFT" } });
     throw error;
@@ -109,5 +111,7 @@ export async function unpublishMixMatchOffer(
     await syncMixMatchVariantMetafields(admin, toConfigOffer(offer), [], false);
   }
 
-  return db.offer.update({ where: { id: offerId }, data: { status: "PAUSED" } });
+  const paused = await db.offer.update({ where: { id: offerId }, data: { status: "PAUSED" } });
+  await resyncMixMatchBundlesDisplay(admin, shopId);
+  return paused;
 }

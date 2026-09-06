@@ -190,6 +190,7 @@ model OfferVariant {
   bundleGroup      BundleGroup?  @relation(fields: [bundleGroupId], references: [id], onDelete: Cascade)
   shopifyVariantId String // ProductVariant GID
   titleCache       String?
+  imageCache       String?
   priceCache       Decimal?      @db.Decimal(10, 2)
 
   createdAt DateTime @default(now())

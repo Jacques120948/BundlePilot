@@ -6,6 +6,7 @@ export interface VariantSelection {
   id: string;
   title: string;
   imageUrl?: string | null;
+  price?: string | null;
 }
 
 export interface MixMatchTierRow {
@@ -93,6 +94,7 @@ export function MixMatchBuilder({ initial }: { initial: MixMatchBuilderInitialVa
       id: string;
       title?: string;
       displayName?: string;
+      price?: string;
       image?: { originalSrc?: string; url?: string };
     };
     const picked = result as unknown as PickedVariant[];
@@ -102,6 +104,7 @@ export function MixMatchBuilder({ initial }: { initial: MixMatchBuilderInitialVa
         id: v.id,
         title: v.displayName ?? v.title ?? v.id,
         imageUrl: v.image?.originalSrc ?? v.image?.url ?? null,
+        price: v.price ?? null,
       })),
     );
   }
@@ -133,7 +136,9 @@ export function MixMatchBuilder({ initial }: { initial: MixMatchBuilderInitialVa
         name,
         publicTitle,
         description,
-        variants: JSON.stringify(variants.map((v) => ({ id: v.id, title: v.title, imageUrl: v.imageUrl }))),
+        variants: JSON.stringify(
+          variants.map((v) => ({ id: v.id, title: v.title, imageUrl: v.imageUrl, price: v.price })),
+        ),
         minItems: String(minItems),
         maxItems: String(maxItems),
         allowDuplicates: String(allowDuplicates),

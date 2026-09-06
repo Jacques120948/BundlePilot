@@ -199,7 +199,12 @@ export interface MixMatchOfferData {
   name: string;
   publicTitle: string;
   description?: string | null;
-  variantIds: string[];
+  variants: {
+    shopifyVariantId: string;
+    titleCache?: string | null;
+    imageCache?: string | null;
+    priceCache?: number | null;
+  }[];
   minItems: number;
   maxItems: number;
   allowDuplicates: boolean;
@@ -214,7 +219,7 @@ function toMixMatchValidationInput(data: MixMatchOfferData): MixMatchOfferInput 
   return {
     name: data.name,
     publicTitle: data.publicTitle,
-    variantIds: data.variantIds,
+    variantIds: data.variants.map((v) => v.shopifyVariantId),
     minItems: data.minItems,
     maxItems: data.maxItems,
     allowDuplicates: data.allowDuplicates,
@@ -232,9 +237,15 @@ async function upsertMixMatchPoolAndTiers(offerId: string, data: MixMatchOfferDa
   await db.offerVariant.deleteMany({ where: { offerId, bundleGroupId: null } });
   await db.offerTier.deleteMany({ where: { offerId } });
 
-  if (data.variantIds.length > 0) {
+  if (data.variants.length > 0) {
     await db.offerVariant.createMany({
-      data: data.variantIds.map((shopifyVariantId) => ({ offerId, shopifyVariantId })),
+      data: data.variants.map((v) => ({
+        offerId,
+        shopifyVariantId: v.shopifyVariantId,
+        titleCache: v.titleCache ?? null,
+        imageCache: v.imageCache ?? null,
+        priceCache: v.priceCache ?? null,
+      })),
     });
   }
   if (data.tiers.length > 0) {

@@ -1,0 +1,142 @@
+.bundlepilot-mm {
+  font: inherit;
+}
+
+.bundlepilot-mm__container {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  max-width: 100%;
+}
+
+.bundlepilot-mm__heading {
+  margin: 0;
+}
+
+.bundlepilot-mm__description {
+  margin: 0;
+  color: rgba(0, 0, 0, 0.7);
+}
+
+.bundlepilot-mm__progress {
+  font-weight: 600;
+  margin: 0;
+}
+
+.bundlepilot-mm__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 1rem;
+}
+
+.bundlepilot-mm__card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 0.5rem;
+  padding: 0.75rem;
+}
+
+.bundlepilot-mm__card img {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  border-radius: 0.35rem;
+}
+
+.bundlepilot-mm__card-title {
+  margin: 0;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.bundlepilot-mm__card-price {
+  margin: 0;
+  color: rgba(0, 0, 0, 0.7);
+}
+
+.bundlepilot-mm__stepper {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.bundlepilot-mm__stepper button {
+  min-width: 44px;
+  min-height: 44px;
+  border-radius: 0.4rem;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  background: #fff;
+  font-size: 1.1rem;
+  cursor: pointer;
+}
+
+.bundlepilot-mm__stepper button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.bundlepilot-mm__checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 44px;
+  cursor: pointer;
+}
+
+.bundlepilot-mm__checkbox-label input {
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
+.bundlepilot-mm__complete {
+  color: #0a7a2f;
+  font-weight: 700;
+  margin: 0;
+}
+
+.bundlepilot-mm__summary p {
+  margin: 0.15rem 0;
+}
+
+.bundlepilot-mm__savings {
+  color: #0a7a2f;
+  font-weight: 600;
+}
+
+.bundlepilot-mm__bundle-price {
+  font-weight: 700;
+  font-size: 1.1rem;
+}
+
+.bundlepilot-mm__add {
+  min-height: 44px;
+  padding: 0.75rem 1rem;
+  border-radius: 0.5rem;
+  border: none;
+  background: var(--bundlepilot-accent, #1a1a1a);
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.bundlepilot-mm__add:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.bundlepilot-mm__error {
+  color: #c0272d;
+}
+
+.bundlepilot-mm__empty {
+  color: rgba(0, 0, 0, 0.6);
+}
+
+@media (max-width: 375px) {
+  .bundlepilot-mm__grid {
+    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  }
+}

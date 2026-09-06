@@ -112,14 +112,45 @@ docs/CART_TRANSFORM.md "Verification status" for the exact steps
 (deploy, `shopify app function typegen` for both extensions, then the
 brief item 90 acceptance test) before treating this phase as done.
 
-## Phase 3 — Mix & Match storefront
+## Phase 3 — Mix & Match storefront (built; live verification pending)
 
-- Bundle Builder theme block: progress indicator, live pricing, Add bundle
-  to cart with `_bp_offer`/`_bp_session` attributes.
-- Cart-removal / quantity-change behavior verified live (brief items 44-45,
-  81).
-- "Add BundlePilot to my theme" deep link (docs/SHOPIFY_COMPLIANCE.md).
-- MVP acceptance test from brief item 90.
+Delivered:
+
+- Variant pool caching extended to `title`/`image`/`price` (new
+  `OfferVariant.imageCache` column + migration) so the storefront block
+  can render a real product grid without extra Admin API calls at render
+  time — `app/lib/offers.server.ts`, `app/lib/mix-match-form.server.ts`,
+  `app/components/MixMatchBuilder.tsx`.
+- Shop-level `mix-match-bundles` display metafield: pure builder
+  (`app/lib/shopify/mix-match-display-config.ts`, 5 unit tests) + sync
+  layer (`app/lib/shopify/mix-match-display-sync.server.ts`) that does a
+  full rewrite on every publish/pause/delete — see
+  docs/MIX_MATCH_ENGINE.md "Storefront display metafield".
+- Mix & Match Bundle Builder theme block (`extensions/bundlepilot-theme`):
+  progress indicator, live pricing (regular/savings/bundle price, tier-aware),
+  "Bundle complete ✓" state, Add bundle to cart posting every selected
+  variant in one `/cart/add.js` call tagged with `_bp_offer`/`_bp_session`
+  line item properties — see docs/THEME_EXTENSION.md "Mix & Match block".
+- Cart-removal / quantity-change behavior: no separate invalidation code
+  path needed — the Cart Transform function already recomputes from
+  scratch on every mutation (brief items 44-45, 81), exercised by the
+  Phase 2 Cart Transform unit tests; still needs a live-cart walkthrough.
+- "Add BundlePilot to my theme" deep links for both blocks, built from
+  `SHOPIFY_API_KEY` at request time (no hardcoded client id), plus a
+  copyable Offer ID on the Mix & Match edit page for shops with more than
+  one active bundle — `app/routes/app.settings.tsx`,
+  `app/routes/app.offers.$id.tsx` (docs/SHOPIFY_COMPLIANCE.md).
+- Brief item 90 acceptance scenario (add 3 of 3 required items, verify
+  live price preview, add to cart, remove one component) is covered by
+  the existing Cart Transform Function unit tests end-to-end at the
+  computation layer; the storefront click-through itself is pending live
+  verification (see below).
+
+**Not independently verified end-to-end** — same constraint as Phases 1-2
+(no Shopify Partner org linked in this environment). See
+docs/THEME_EXTENSION.md "Verification status" for the exact steps (deploy,
+open a real dev store theme editor, use both deep links, walk the brief
+item 90 scenario in an actual cart) before treating this phase as done.
 
 ## Phase 4 — Grouped Mix & Match
 

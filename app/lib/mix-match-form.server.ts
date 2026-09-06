@@ -24,7 +24,12 @@ export function parseMixMatchForm(formData: FormData): ParsedMixMatchForm {
   const discountValue =
     rawDiscountValue === null || rawDiscountValue === "" ? null : Number(rawDiscountValue);
 
-  const variants = JSON.parse(String(formData.get("variants") ?? "[]")) as { id: string }[];
+  const variants = JSON.parse(String(formData.get("variants") ?? "[]")) as {
+    id: string;
+    title?: string;
+    imageUrl?: string | null;
+    price?: string | number | null;
+  }[];
   const tiers = JSON.parse(String(formData.get("tiers") ?? "[]")) as {
     quantity: number;
     discountType: "PERCENTAGE" | "FIXED_AMOUNT";
@@ -38,7 +43,12 @@ export function parseMixMatchForm(formData: FormData): ParsedMixMatchForm {
       name,
       publicTitle,
       description: description || null,
-      variantIds: variants.map((v) => v.id),
+      variants: variants.map((v) => ({
+        shopifyVariantId: v.id,
+        titleCache: v.title || null,
+        imageCache: v.imageUrl || null,
+        priceCache: v.price === null || v.price === undefined || v.price === "" ? null : Number(v.price),
+      })),
       minItems,
       maxItems,
       allowDuplicates,

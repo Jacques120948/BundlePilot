@@ -18,6 +18,7 @@ import {
 } from "../lib/quantity-break-publish.server";
 import { parseMixMatchForm } from "../lib/mix-match-form.server";
 import { publishMixMatchOffer, unpublishMixMatchOffer } from "../lib/mix-match-publish.server";
+import { resyncMixMatchBundlesDisplay } from "../lib/shopify/mix-match-display-sync.server";
 import { QuantityBreakBuilder } from "../components/QuantityBreakBuilder";
 import { MixMatchBuilder } from "../components/MixMatchBuilder";
 
@@ -45,6 +46,9 @@ export const action = async (args: ActionFunctionArgs) => {
 
     if (lifecycleIntent === "delete") {
       await deleteOffer(shop.id, offerId);
+      if (existingOffer.type === "MIX_MATCH" && existingOffer.status === "ACTIVE") {
+        await resyncMixMatchBundlesDisplay(admin.graphql, shop.id);
+      }
       return redirect("/app/offers");
     }
     if (lifecycleIntent === "pause") {
@@ -136,7 +140,8 @@ export default function EditOffer() {
             variants: offer.variants.map((v) => ({
               id: v.shopifyVariantId,
               title: v.titleCache ?? v.shopifyVariantId,
-              imageUrl: null,
+              imageUrl: v.imageCache,
+              price: v.priceCache === null ? null : String(v.priceCache),
             })),
             minItems: offer.minItems ?? 3,
             maxItems: offer.maxItems ?? 3,
@@ -155,6 +160,16 @@ export default function EditOffer() {
             status: offer.status,
           }}
         />
+        <s-section heading="Storefront block setup">
+          <s-paragraph>
+            If your theme shows more than one Mix &amp; Match bundle, paste this Bundle ID
+            into the block&apos;s &quot;Bundle ID&quot; setting in the Theme Editor to pick
+            this one. Stores with only one active Mix &amp; Match bundle can leave it blank.
+          </s-paragraph>
+          <s-box padding="base" borderWidth="base" borderRadius="base" background="subdued">
+            <code>{offer.id}</code>
+          </s-box>
+        </s-section>
         <OfferLifecycleActions status={offer.status} fetcher={lifecycleFetcher} />
       </>
     );

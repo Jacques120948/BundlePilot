@@ -72,10 +72,10 @@ const validQuantityBreakData = {
 const validMixMatchData = {
   name: "Build your coffret",
   publicTitle: "Compose your bundle",
-  variantIds: [
-    "gid://shopify/ProductVariant/1",
-    "gid://shopify/ProductVariant/2",
-    "gid://shopify/ProductVariant/3",
+  variants: [
+    { shopifyVariantId: "gid://shopify/ProductVariant/1" },
+    { shopifyVariantId: "gid://shopify/ProductVariant/2" },
+    { shopifyVariantId: "gid://shopify/ProductVariant/3" },
   ],
   minItems: 3,
   maxItems: 3,
@@ -121,7 +121,7 @@ describe("offers.server", () => {
 
   it("rejects creating a Mix & Match draft that fails validation", async () => {
     await expect(
-      createMixMatchDraft("shop_1", { ...validMixMatchData, variantIds: [] }),
+      createMixMatchDraft("shop_1", { ...validMixMatchData, variants: [] }),
     ).rejects.toBeInstanceOf(OfferValidationError);
     expect(offerCreate).not.toHaveBeenCalled();
   });
@@ -133,7 +133,7 @@ describe("offers.server", () => {
       shopId: "shop_1",
       tiers: [],
       products: [],
-      variants: validMixMatchData.variantIds.map((shopifyVariantId) => ({ shopifyVariantId })),
+      variants: validMixMatchData.variants,
     });
 
     await createMixMatchDraft("shop_1", validMixMatchData);
@@ -144,9 +144,12 @@ describe("offers.server", () => {
       }),
     );
     expect(offerVariantCreateMany).toHaveBeenCalledWith({
-      data: validMixMatchData.variantIds.map((shopifyVariantId) => ({
+      data: validMixMatchData.variants.map((v) => ({
         offerId: "off_mm_1",
-        shopifyVariantId,
+        shopifyVariantId: v.shopifyVariantId,
+        titleCache: null,
+        imageCache: null,
+        priceCache: null,
       })),
     });
   });
