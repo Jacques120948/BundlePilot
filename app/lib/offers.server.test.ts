@@ -11,6 +11,8 @@ const offerVariantDeleteMany = vi.fn();
 const offerVariantCreateMany = vi.fn();
 const offerTierDeleteMany = vi.fn();
 const offerTierCreateMany = vi.fn();
+const bundleGroupDeleteMany = vi.fn();
+const bundleGroupCreate = vi.fn();
 const offerCount = vi.fn();
 const subscriptionFindUnique = vi.fn().mockResolvedValue(null);
 const featureEntitlementFindUnique = vi.fn().mockResolvedValue(null);
@@ -37,6 +39,10 @@ vi.mock("../db.server", () => ({
       deleteMany: (...a: unknown[]) => offerTierDeleteMany(...a),
       createMany: (...a: unknown[]) => offerTierCreateMany(...a),
     },
+    bundleGroup: {
+      deleteMany: (...a: unknown[]) => bundleGroupDeleteMany(...a),
+      create: (...a: unknown[]) => bundleGroupCreate(...a),
+    },
     subscription: {
       findUnique: (...a: unknown[]) => subscriptionFindUnique(...a),
     },
@@ -50,6 +56,8 @@ const {
   createQuantityBreakDraft,
   createMixMatchDraft,
   updateMixMatchOffer,
+  createMixMatchGroupedDraft,
+  updateMixMatchGroupedOffer,
   getOwnedOffer,
   OfferNotFoundError,
   OfferValidationError,
@@ -82,6 +90,35 @@ const validMixMatchData = {
   allowDuplicates: false,
   discountType: "PERCENTAGE" as const,
   discountValue: 15,
+  tiers: [],
+};
+
+const validMixMatchGroupedData = {
+  name: "Build your gift set",
+  publicTitle: "Build your gift set",
+  groups: [
+    {
+      name: "Candle",
+      minSelections: 1,
+      maxSelections: 1,
+      required: true,
+      allowDuplicates: false,
+      variants: [
+        { shopifyVariantId: "gid://shopify/ProductVariant/1" },
+        { shopifyVariantId: "gid://shopify/ProductVariant/2" },
+      ],
+    },
+    {
+      name: "Bracelet",
+      minSelections: 1,
+      maxSelections: 1,
+      required: true,
+      allowDuplicates: false,
+      variants: [{ shopifyVariantId: "gid://shopify/ProductVariant/3" }],
+    },
+  ],
+  discountType: "PERCENTAGE" as const,
+  discountValue: 20,
   tiers: [],
 };
 
@@ -172,6 +209,95 @@ describe("offers.server", () => {
         data: expect.objectContaining({ configVersion: { increment: 1 } }),
       }),
     );
+  });
+
+  it("rejects creating a Grouped Mix & Match draft that fails validation", async () => {
+    await expect(
+      createMixMatchGroupedDraft("shop_1", { ...validMixMatchGroupedData, groups: [] }),
+    ).rejects.toBeInstanceOf(OfferValidationError);
+    expect(offerCreate).not.toHaveBeenCalled();
+  });
+
+  it("creates a Grouped Mix & Match draft offer with one BundleGroup row per group", async () => {
+    offerCreate.mockResolvedValue({ id: "off_grouped_1" });
+    bundleGroupCreate
+      .mockResolvedValueOnce({ id: "grp_1" })
+      .mockResolvedValueOnce({ id: "grp_2" });
+    offerFindFirst.mockResolvedValue({
+      id: "off_grouped_1",
+      shopId: "shop_1",
+      tiers: [],
+      products: [],
+      variants: [],
+      groups: [],
+    });
+
+    await createMixMatchGroupedDraft("shop_1", validMixMatchGroupedData);
+
+    expect(offerCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          shopId: "shop_1",
+          type: "MIX_MATCH_GROUPED",
+          status: "DRAFT",
+        }),
+      }),
+    );
+    expect(bundleGroupCreate).toHaveBeenCalledTimes(2);
+    expect(bundleGroupCreate).toHaveBeenNthCalledWith(1, {
+      data: expect.objectContaining({
+        offerId: "off_grouped_1",
+        name: "Candle",
+        sortOrder: 0,
+        minSelections: 1,
+        maxSelections: 1,
+        required: true,
+        allowDuplicates: false,
+      }),
+    });
+    expect(offerVariantCreateMany).toHaveBeenCalledWith({
+      data: [
+        {
+          offerId: "off_grouped_1",
+          bundleGroupId: "grp_1",
+          shopifyVariantId: "gid://shopify/ProductVariant/1",
+          titleCache: null,
+          imageCache: null,
+          priceCache: null,
+        },
+        {
+          offerId: "off_grouped_1",
+          bundleGroupId: "grp_1",
+          shopifyVariantId: "gid://shopify/ProductVariant/2",
+          titleCache: null,
+          imageCache: null,
+          priceCache: null,
+        },
+      ],
+    });
+  });
+
+  it("bumps configVersion when a Grouped Mix & Match offer is updated", async () => {
+    bundleGroupCreate.mockResolvedValue({ id: "grp_1" });
+    offerFindFirst.mockResolvedValue({
+      id: "off_grouped_1",
+      shopId: "shop_1",
+      tiers: [],
+      products: [],
+      variants: [],
+      groups: [],
+    });
+    offerUpdate.mockResolvedValue({});
+
+    await updateMixMatchGroupedOffer("shop_1", "off_grouped_1", validMixMatchGroupedData);
+
+    expect(offerUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "off_grouped_1" },
+        data: expect.objectContaining({ configVersion: { increment: 1 } }),
+      }),
+    );
+    expect(bundleGroupDeleteMany).toHaveBeenCalledWith({ where: { offerId: "off_grouped_1" } });
   });
 
   it("throws OfferNotFoundError for an offer belonging to another shop", async () => {

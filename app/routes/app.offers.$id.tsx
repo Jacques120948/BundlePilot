@@ -7,6 +7,7 @@ import {
   OfferConflictError,
   OfferNotFoundError,
   OfferValidationError,
+  updateMixMatchGroupedOffer,
   updateMixMatchOffer,
   updateQuantityBreakOffer,
 } from "../lib/offers.server";
@@ -17,10 +18,14 @@ import {
   unpublishQuantityBreakOffer,
 } from "../lib/quantity-break-publish.server";
 import { parseMixMatchForm } from "../lib/mix-match-form.server";
+import { parseMixMatchGroupedForm } from "../lib/mix-match-grouped-form.server";
 import { publishMixMatchOffer, unpublishMixMatchOffer } from "../lib/mix-match-publish.server";
 import { resyncMixMatchBundlesDisplay } from "../lib/shopify/mix-match-display-sync.server";
 import { QuantityBreakBuilder } from "../components/QuantityBreakBuilder";
 import { MixMatchBuilder } from "../components/MixMatchBuilder";
+import { MixMatchGroupedBuilder } from "../components/MixMatchGroupedBuilder";
+
+const CART_TRANSFORM_TYPES = new Set(["MIX_MATCH", "MIX_MATCH_GROUPED"]);
 
 export const loader = async (args: LoaderFunctionArgs) => {
   const { shop } = await requireTenant(args);
@@ -46,13 +51,13 @@ export const action = async (args: ActionFunctionArgs) => {
 
     if (lifecycleIntent === "delete") {
       await deleteOffer(shop.id, offerId);
-      if (existingOffer.type === "MIX_MATCH" && existingOffer.status === "ACTIVE") {
+      if (CART_TRANSFORM_TYPES.has(existingOffer.type) && existingOffer.status === "ACTIVE") {
         await resyncMixMatchBundlesDisplay(admin.graphql, shop.id);
       }
       return redirect("/app/offers");
     }
     if (lifecycleIntent === "pause") {
-      if (existingOffer.type === "MIX_MATCH") {
+      if (CART_TRANSFORM_TYPES.has(existingOffer.type)) {
         await unpublishMixMatchOffer(admin.graphql, shop.id, offerId);
       } else {
         await unpublishQuantityBreakOffer(admin.graphql, shop.id, offerId);
@@ -60,7 +65,15 @@ export const action = async (args: ActionFunctionArgs) => {
       return redirect(`/app/offers/${offerId}`);
     }
 
-    if (existingOffer.type === "MIX_MATCH") {
+    if (existingOffer.type === "MIX_MATCH_GROUPED") {
+      const previousVariantIds = existingOffer.variants.map((v) => v.shopifyVariantId);
+      const { intent, data } = parseMixMatchGroupedForm(formData);
+      await updateMixMatchGroupedOffer(shop.id, offerId, data);
+
+      if (intent === "publish") {
+        await publishMixMatchOffer(admin.graphql, shop.id, offerId, previousVariantIds);
+      }
+    } else if (existingOffer.type === "MIX_MATCH") {
       const previousVariantIds = existingOffer.variants.map((v) => v.shopifyVariantId);
       const { intent, data } = parseMixMatchForm(formData);
       await updateMixMatchOffer(shop.id, offerId, data);
@@ -165,6 +178,59 @@ export default function EditOffer() {
             If your theme shows more than one Mix &amp; Match bundle, paste this Bundle ID
             into the block&apos;s &quot;Bundle ID&quot; setting in the Theme Editor to pick
             this one. Stores with only one active Mix &amp; Match bundle can leave it blank.
+          </s-paragraph>
+          <s-box padding="base" borderWidth="base" borderRadius="base" background="subdued">
+            <code>{offer.id}</code>
+          </s-box>
+        </s-section>
+        <OfferLifecycleActions status={offer.status} fetcher={lifecycleFetcher} />
+      </>
+    );
+  }
+
+  if (offer.type === "MIX_MATCH_GROUPED") {
+    return (
+      <>
+        <MixMatchGroupedBuilder
+          initial={{
+            offerId: offer.id,
+            name: offer.name,
+            publicTitle: offer.publicTitle,
+            description: offer.description ?? "",
+            groups: offer.groups.map((g) => ({
+              key: g.id,
+              name: g.name,
+              description: g.description ?? "",
+              minSelections: g.minSelections,
+              maxSelections: g.maxSelections,
+              required: g.required,
+              allowDuplicates: g.allowDuplicates,
+              variants: g.variants.map((v) => ({
+                id: v.shopifyVariantId,
+                title: v.titleCache ?? v.shopifyVariantId,
+                imageUrl: v.imageCache,
+                price: v.priceCache === null ? null : String(v.priceCache),
+              })),
+            })),
+            useTiers: offer.tiers.length > 0,
+            discountType: (offer.discountType as "PERCENTAGE" | "FIXED_AMOUNT") ?? "PERCENTAGE",
+            discountValue: offer.discountValue === null ? 20 : Number(offer.discountValue),
+            tiers: offer.tiers.map((t) => ({
+              quantity: t.quantity,
+              discountType: t.discountType as "PERCENTAGE" | "FIXED_AMOUNT",
+              discountValue: Number(t.discountValue),
+              label: t.label ?? "",
+            })),
+            startsAt: offer.startsAt ? offer.startsAt.toISOString().slice(0, 10) : "",
+            endsAt: offer.endsAt ? offer.endsAt.toISOString().slice(0, 10) : "",
+            status: offer.status,
+          }}
+        />
+        <s-section heading="Storefront block setup">
+          <s-paragraph>
+            If your theme shows more than one Mix &amp; Match bundle (flat or grouped), paste
+            this Bundle ID into the block&apos;s &quot;Bundle ID&quot; setting in the Theme
+            Editor to pick this one. Stores with only one active bundle can leave it blank.
           </s-paragraph>
           <s-box padding="base" borderWidth="base" borderRadius="base" background="subdued">
             <code>{offer.id}</code>

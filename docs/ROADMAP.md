@@ -152,11 +152,64 @@ docs/THEME_EXTENSION.md "Verification status" for the exact steps (deploy,
 open a real dev store theme editor, use both deep links, walk the brief
 item 90 scenario in an actual cart) before treating this phase as done.
 
-## Phase 4 — Grouped Mix & Match
+## Phase 4 — Grouped Mix & Match (built; live verification pending)
 
-- `BundleGroup` CRUD (add/reorder/required toggle) in the builder.
-- Step-by-step storefront flow + summary screen.
-- Acceptance test from brief item 91.
+Delivered:
+
+- Per-group `allowDuplicates` in the enforcement model: `BundleGroup`
+  (schema, unchanged since Phase 0) already had the column, but the Cart
+  Transform function only read an offer-wide flag until now — generalized
+  `isGroupValid` in `extensions/mix-match-cart-transform` to check
+  duplicates and optional-group ranges per group instead. Flat Mix & Match
+  is unaffected: it's now just the one-group case of the same check. 21
+  Cart Transform unit tests (up from 15), including a brief item 91
+  scenario mixing a required no-duplicates group with an optional
+  duplicates-allowed one.
+- `validateMixMatchGroupedOffer` (`app/lib/validation/mix-match-grouped.ts`,
+  17 tests): per-group min/max/required/uncompletable-pool checks (the
+  brief item 34 worked example, generalized per group), plus a Phase
+  4-specific rule — a variant can only belong to one group per offer (see
+  docs/MIX_MATCH_ENGINE.md "Grouped bundles" for why).
+- Data layer: `createMixMatchGroupedDraft`/`updateMixMatchGroupedOffer`
+  (full delete-then-recreate of `BundleGroup` + its `OfferVariant` rows,
+  same pattern as the flat pool) — `app/lib/offers.server.ts`.
+- Shopify sync generalized rather than duplicated: `publishMixMatchOffer`/
+  `unpublishMixMatchOffer` now branch on offer type only to decide *which*
+  config to build (`buildBundleComponentConfig` vs.
+  `buildGroupedBundleComponentConfig`) — parent variant creation, cart
+  transform activation, and metafield sync are identical code paths for
+  both offer types. The shop-level display metafield
+  (`resyncMixMatchBundlesDisplay`) now merges flat and grouped active
+  offers into one map.
+- `BundleGroup` CRUD in the admin builder
+  (`app/components/MixMatchGroupedBuilder.tsx`): add/remove/reorder groups
+  (move up/down), required toggle, min/max, per-group `allowDuplicates`,
+  and a per-group product/variant Resource Picker — wired into
+  `app/routes/app.offers.new.mix-match-grouped.tsx` and the
+  `MIX_MATCH_GROUPED` branch of `app/routes/app.offers.$id.tsx`.
+- Step-by-step storefront flow + summary screen in the same
+  `bundlepilot-theme` Mix & Match block used by Phase 3: `mix-match.js`
+  now detects a grouped bundle (its display-config entry carries `groups`)
+  and renders one step per group with Back/Next navigation, then a
+  summary screen listing every group's picks with the live regular/
+  savings/bundle price and "Add bundle to cart" — see
+  docs/THEME_EXTENSION.md "Mix & Match block". No new liquid block or
+  deep link was needed; the existing Mix & Match block/link cover both
+  shapes.
+- Brief item 91 acceptance scenario (a required no-duplicates group +
+  an optional duplicates-allowed group; skipping the optional group;
+  filling it within and beyond its own max; a required group missing
+  even when the aggregate item count would work out; removing a
+  component invalidating the whole bundle) is covered end-to-end by the
+  Cart Transform Function's own unit tests; the storefront click-through
+  itself is pending live verification (see below).
+
+**Not independently verified end-to-end** — same constraint as Phases 1-3
+(no Shopify Partner org linked in this environment). See
+docs/THEME_EXTENSION.md "Verification status" for the exact steps (deploy,
+open a real dev store theme editor, walk the step-by-step flow to the
+summary screen, confirm Add to cart applies the correct discount) before
+treating this phase as done.
 
 ## Phase 5 — Design
 

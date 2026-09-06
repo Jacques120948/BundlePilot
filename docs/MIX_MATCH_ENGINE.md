@@ -108,6 +108,44 @@ highest tier whose `quantity` the verified item count meets — mirroring the
 Quantity Break tier-selection logic in docs/DISCOUNT_ENGINE.md. Tiers never
 stack.
 
+## Grouped bundles (Phase 4)
+
+A `MIX_MATCH_GROUPED` offer ("choose 1 candle + choose 1 bracelet") reuses
+every mechanism above unchanged — the same Cart Transform function, the
+same denormalized `bundle-component` metafield, the same tamper check —
+because the config's `groups` array was already generalized past a single
+"pool" entry back in Phase 2 (see `docs/CART_TRANSFORM.md` item 79 test).
+Phase 4 fills in two things the flat case didn't need:
+
+- **Per-group `allowDuplicates`.** A flat pool has exactly one duplicate
+  rule for the whole bundle. A grouped bundle can mix rules per group — e.g.
+  "1 candle, no duplicates" alongside "up to 2 wax melts, duplicates OK" in
+  the same bundle. The function looks up each cart line's group by its
+  variant id and checks that group's own `allowDuplicates`, not a single
+  offer-wide flag (see `extensions/mix-match-cart-transform/src/cart_transform_run.ts#isGroupValid`).
+- **Optional groups.** `BundleGroup.required = false` lets a group be
+  skipped entirely (0 items). Skipped is always fine; but the moment a
+  customer puts *anything* in an optional group, that group's own
+  `min`/`max` still applies — an optional "up to 2 wax melts" group can't
+  silently accept 5.
+
+**Derived, not stored, bundle-wide bounds.** `Offer.minItems`/`maxItems` are
+null for grouped offers (see docs/BUNDLE_ARCHITECTURE.md "The Offer spine
+has no offer-wide min/max for grouped bundles") — `buildGroupedBundleComponentConfig`
+computes the aggregate `minItems` (sum of every *required* group's minimum)
+and `maxItems` (sum of every group's maximum, since an optional group can
+still be filled) at publish time, and the Cart Transform function checks
+that aggregate exactly like it does for a flat pool, on top of each
+individual group's own range.
+
+**One variant, one group.** A variant can't be placed in more than one
+group of the same offer — enforced by `validateMixMatchGroupedOffer`
+before publish. Without this, a cart line for a shared variant would be
+ambiguous about which group's rules should apply to it; disallowing the
+overlap keeps the Cart Transform function's per-line group lookup a simple,
+unambiguous map rather than a rule needing its own tie-breaking logic. A
+deliberate V1 simplification, not a platform limitation.
+
 ## Removing a component in the cart / changing quantity
 
 Because the discount is recomputed from scratch on every cart mutation
@@ -159,6 +197,38 @@ does a **full rewrite** of the metafield on every publish, pause, and
 delete of a Mix & Match offer (`app/lib/mix-match-publish.server.ts` and
 the delete branch of `app/routes/app.offers.$id.tsx`) — never an
 incremental patch, so a stale entry can't survive an offer going away.
+
+**Grouped offers (Phase 4)** land in this same map, built by the sibling
+`buildGroupedMixMatchBundlesDisplay` and merged in by
+`resyncMixMatchBundlesDisplay` (one query for active `MIX_MATCH` offers,
+one for active `MIX_MATCH_GROUPED` offers, spread together into one
+object) — a theme block never needs to know which kind of bundle it's
+showing until it reads the entry. A grouped entry replaces the flat
+`products` array (left empty) with `groups`, each carrying its own
+`minSelections`/`maxSelections`/`required`/`allowDuplicates`/`products` —
+see docs/THEME_EXTENSION.md "Mix & Match block" for how `mix-match.js`
+picks a renderer based on whether `groups` is present:
+
+```json
+{
+  "off_grp_1": {
+    "offerId": "off_grp_1",
+    "publicTitle": "Build your gift box",
+    "minItems": 2,
+    "maxItems": 4,
+    "discountType": "PERCENTAGE",
+    "discountValue": 20,
+    "products": [],
+    "groups": [
+      {
+        "id": "grp_candle", "name": "Candle", "minSelections": 1, "maxSelections": 1,
+        "required": true, "allowDuplicates": false,
+        "products": [{ "variantId": "gid://shopify/ProductVariant/1", "title": "...", "imageUrl": "...", "price": 20 }]
+      }
+    ]
+  }
+}
+```
 
 Because this metafield only ever describes offers, never a cart or a
 specific customer's state, tampering with it client-side is meaningless:

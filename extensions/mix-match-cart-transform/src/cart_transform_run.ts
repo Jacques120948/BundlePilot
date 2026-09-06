@@ -16,6 +16,7 @@ interface BundleGroup {
   min: number;
   max: number;
   required: boolean;
+  allowDuplicates: boolean;
   variantIds: string[];
 }
 
@@ -131,6 +132,13 @@ function resolveEffectivePercentage(
   return Math.min(100, (discountValue / componentsSum) * 100);
 }
 
+/**
+ * Each candidate is matched to the single group whose pool contains its
+ * variant (admin-side validation keeps a variant from being placed in more
+ * than one group — see docs/MIX_MATCH_ENGINE.md "Grouped bundles" — so an
+ * ambiguous match here would only ever be an already-invalid config; the
+ * first group wins defensively rather than the function throwing).
+ */
 function isGroupValid(candidates: Candidate[]): boolean {
   const config = candidates[0].config;
 
@@ -140,25 +148,42 @@ function isGroupValid(candidates: Candidate[]): boolean {
     return false;
   }
 
-  const poolVariantIds = new Set(config.groups.flatMap((g) => g.variantIds));
-  if (!candidates.every((c) => poolVariantIds.has(c.variantId))) return false;
-
-  if (!config.allowDuplicates) {
-    const seenVariants = new Set<string>();
-    for (const c of candidates) {
-      if (c.line.quantity > 1 || seenVariants.has(c.variantId)) return false;
-      seenVariants.add(c.variantId);
+  const groupByVariant = new Map<string, BundleGroup>();
+  for (const group of config.groups) {
+    for (const variantId of group.variantIds) {
+      if (!groupByVariant.has(variantId)) groupByVariant.set(variantId, group);
     }
+  }
+
+  const membership: { candidate: Candidate; group: BundleGroup }[] = [];
+  for (const c of candidates) {
+    const group = groupByVariant.get(c.variantId);
+    if (!group) return false; // outside every group's pool
+    membership.push({ candidate: c, group });
   }
 
   const totalItems = candidates.reduce((sum, c) => sum + c.line.quantity, 0);
   if (totalItems < config.minItems || totalItems > config.maxItems) return false;
 
   for (const group of config.groups) {
-    if (!group.required) continue;
-    const inGroup = candidates.filter((c) => group.variantIds.includes(c.variantId));
-    const groupItems = inGroup.reduce((sum, c) => sum + c.line.quantity, 0);
-    if (groupItems < group.min || groupItems > group.max) return false;
+    const inGroup = membership.filter((m) => m.group.id === group.id);
+    const groupItems = inGroup.reduce((sum, m) => sum + m.candidate.line.quantity, 0);
+
+    // A required group must land inside its own range. An optional group
+    // left untouched (0 items) is fine, but once the customer starts
+    // filling it, it must still respect its own min/max — see
+    // docs/MIX_MATCH_ENGINE.md "Grouped bundles".
+    if (group.required || groupItems > 0) {
+      if (groupItems < group.min || groupItems > group.max) return false;
+    }
+
+    if (!group.allowDuplicates) {
+      const seenVariants = new Set<string>();
+      for (const m of inGroup) {
+        if (m.candidate.line.quantity > 1 || seenVariants.has(m.candidate.variantId)) return false;
+        seenVariants.add(m.candidate.variantId);
+      }
+    }
   }
 
   return true;

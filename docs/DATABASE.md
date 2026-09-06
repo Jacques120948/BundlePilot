@@ -39,17 +39,28 @@ pricing — Shopify's live product/variant data (fetched via GraphQL Admin
 API server-side, or Storefront API client-side) is always the source of
 truth for anything price- or availability-related, per brief item 61.
 
-## Why `BundleGroupProduct` is a separate join table
+## Why `BundleGroupProduct` is a separate join table (reserved, not yet wired up)
 
-`OfferProduct` already serves double duty (flat Quantity Break/Mix & Match
-pool, cached via `offerId` + `shopifyProductId` uniqueness). Grouped
-bundles need the *same* product to potentially appear in multiple groups
-within one offer (e.g. a versatile product offered as a choice in both
-"candle" and "gift" groups) without violating that per-offer uniqueness
-constraint or duplicating the cached title/image row. `BundleGroupProduct`
-is a plain many-to-many join between `BundleGroup` and `OfferProduct` that
-keeps `OfferProduct` as the single deduplicated cache row per product per
-offer.
+`OfferProduct` already serves double duty (flat Quantity Break pool,
+cached via `offerId` + `shopifyProductId` uniqueness). `BundleGroupProduct`
+was modeled in Phase 0 as a many-to-many join between `BundleGroup` and
+`OfferProduct`, anticipating a future `selectionMode = COLLECTION` for
+Grouped Mix & Match where the *same* product could be offered as a choice
+in more than one group.
+
+**Correction from Phase 4 implementation**: the shipped Grouped Mix &
+Match builder uses manual variant selection only (matching flat Mix &
+Match's `MANUAL` mode — brief item 2's "never force a collection"), so
+groups are populated directly via `OfferVariant.bundleGroupId`, not
+`BundleGroupProduct`/`OfferProduct`. Phase 4 also validates that **a given
+variant can only belong to one group per offer** (`validateMixMatchGroupedOffer`
+in `app/lib/validation/mix-match-grouped.ts`) — the opposite of what this
+table was modeled for — because letting one variant satisfy two groups
+would make the Cart Transform function's per-line group lookup ambiguous
+(see docs/MIX_MATCH_ENGINE.md "Grouped bundles" — "One variant, one
+group"). `BundleGroupProduct` stays in the schema, unused, as the landing
+spot for a future collection-based grouped selection mode; it is not a
+dead-code cleanup target.
 
 ## Shopify object references added in Phase 2
 

@@ -1,10 +1,11 @@
 # Theme App Extension
 
 One theme app extension (`extensions/bundlepilot-theme`), one app block per
-offer type. Phase 1 shipped the Quantity Break block; Phase 3 adds the Mix
-& Match block; Grouped Mix & Match reuses the same block in Phase 4 (the
-30-block-per-extension cap in docs/BUNDLE_LIMITATIONS.md gives plenty of
-headroom).
+offer type. Phase 1 shipped the Quantity Break block; Phase 3 added the
+Mix & Match block; Phase 4 makes that same block also render Grouped Mix &
+Match (the 30-block-per-extension cap in docs/BUNDLE_LIMITATIONS.md gives
+plenty of headroom, but a single block that dispatches on the bundle's
+shape needed no second one).
 
 ## Quantity Break block
 
@@ -117,6 +118,40 @@ Function's own unit tests (brief item 81 scenario, see
 `extensions/mix-match-cart-transform/src/cart_transform_run.test.ts`); it
 still needs to be watched once in a real cart during live verification.
 
+## Grouped Mix & Match step-by-step flow (Phase 4)
+
+The same `blocks/mix-match.liquid` block and `assets/mix-match.js` script
+render a Grouped Mix & Match bundle too — no second block was needed.
+`mix-match.js` decides which renderer to use by checking whether the
+picked bundle's display-config entry carries a non-empty `groups` array
+(see docs/MIX_MATCH_ENGINE.md "Storefront display metafield" — grouped
+entries populate `groups` instead of the flat `products` list):
+
+- **One step per group.** Each step shows that group's own product grid
+  (steppers or checkboxes, per that group's own `allowDuplicates` — see
+  docs/MIX_MATCH_ENGINE.md "Grouped bundles"), the group's name/description,
+  its own "Choose N" or "Choose N–M" range, and Back/Next buttons. "Next"
+  (labelled "Review bundle" on the last group) is disabled until the
+  current group's own range is satisfied — an optional group can be left
+  empty and skipped.
+- **Selections persist across steps** in one shared `Map` for the whole
+  bundle, so navigating back to an earlier step never loses what was
+  already picked in a later one.
+- **Summary screen** (after the last group): lists every group's picks by
+  name, then the same regular/savings/bundle price breakdown as the flat
+  block (tier-aware, via the shared `computeSummary`), a "Bundle complete
+  ✓" badge once every group's own range is satisfied, and the "Add bundle
+  to cart" button — disabled until complete, and posting every selected
+  variant across every group in one `/cart/add.js` call tagged with the
+  same `_bp_offer`/`_bp_session` properties described above. A customer
+  can still go Back from the summary screen to change a selection before
+  adding to cart.
+
+Nothing about pricing is computed differently for the storefront preview
+between flat and grouped — both call the same `computeSummary`, which
+picks the discount/tiers off the bundle-wide config either way (a group
+never carries its own discount, only its own selection rules).
+
 ## Adding the blocks to a theme
 
 Merchants can add either block manually via Theme Editor → Add block →
@@ -140,5 +175,7 @@ Not exercised in a live theme in this environment (no Partner org/dev
 store linked here — see docs/DISCOUNT_ENGINE.md "Verification status").
 Verify both blocks render, the price preview matches the Function's actual
 checkout discount, Add to cart works, the deep links land on the right
-block in the Theme Editor, and cart-removal behavior (Mix & Match) on a
-real dev store before relying on this.
+block in the Theme Editor, cart-removal behavior (Mix & Match, flat and
+grouped), and the grouped step-by-step flow end to end (advancing through
+every group, going Back without losing selections, reaching and adding
+from the summary screen) on a real dev store before relying on this.

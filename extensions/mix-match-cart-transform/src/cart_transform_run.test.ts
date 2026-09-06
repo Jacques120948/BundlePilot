@@ -30,6 +30,7 @@ const FLAT_POOL_CONFIG = {
       min: 3,
       max: 3,
       required: true,
+      allowDuplicates: false,
       variantIds: [VARIANT_A, VARIANT_B, VARIANT_C, VARIANT_D],
     },
   ],
@@ -88,7 +89,11 @@ describe("cartTransformRun — brief item 78 (flat Mix & Match: A,B,C,D pool, ch
   });
 
   it("A (qty 2) + C is valid once duplicates are allowed", () => {
-    const config = { ...FLAT_POOL_CONFIG, allowDuplicates: true };
+    const config = {
+      ...FLAT_POOL_CONFIG,
+      allowDuplicates: true,
+      groups: [{ ...FLAT_POOL_CONFIG.groups[0], allowDuplicates: true }],
+    };
     const result = cartTransformRun(
       input([makeLine("l1", VARIANT_A, 2, config), makeLine("l2", VARIANT_C, 1, config)]),
     );
@@ -198,9 +203,9 @@ describe("cartTransformRun — brief item 79 (Grouped Mix & Match, generalized g
     minItems: 3,
     maxItems: 3,
     groups: [
-      { id: "candle", min: 1, max: 1, required: true, variantIds: [VARIANT_A, VARIANT_B] },
-      { id: "bracelet", min: 1, max: 1, required: true, variantIds: [VARIANT_C] },
-      { id: "care", min: 1, max: 1, required: true, variantIds: [VARIANT_D] },
+      { id: "candle", min: 1, max: 1, required: true, allowDuplicates: false, variantIds: [VARIANT_A, VARIANT_B] },
+      { id: "bracelet", min: 1, max: 1, required: true, allowDuplicates: false, variantIds: [VARIANT_C] },
+      { id: "care", min: 1, max: 1, required: true, allowDuplicates: false, variantIds: [VARIANT_D] },
     ],
   };
 
@@ -236,6 +241,95 @@ describe("cartTransformRun — brief item 79 (Grouped Mix & Match, generalized g
       ]),
     );
     expect(result.operations).toHaveLength(0);
+  });
+});
+
+describe("cartTransformRun — brief item 91 (Grouped Mix & Match: per-group duplicates + optional groups)", () => {
+  // "Choose 1 candle" (required, no duplicates) + "Add up to 2 wax melts"
+  // (optional, duplicates OK) + "Choose 1 bracelet" (required, no
+  // duplicates) — exercises a group-level allowDuplicates rule that
+  // differs from its neighbors, and an optional group that can be skipped
+  // entirely or filled up to its own max.
+  const MIXED_GROUPS_CONFIG = {
+    ...FLAT_POOL_CONFIG,
+    minItems: 2, // 1 (required candle) + 1 (required bracelet) + 0 (optional melts)
+    maxItems: 4, // + up to 2 optional melts
+    groups: [
+      { id: "candle", min: 1, max: 1, required: true, allowDuplicates: false, variantIds: [VARIANT_A, VARIANT_B] },
+      { id: "melts", min: 1, max: 2, required: false, allowDuplicates: true, variantIds: [VARIANT_D] },
+      { id: "bracelet", min: 1, max: 1, required: true, allowDuplicates: false, variantIds: [VARIANT_C] },
+    ],
+  };
+
+  it("skipping the optional melts group entirely is valid", () => {
+    const result = cartTransformRun(
+      input([
+        makeLine("l1", VARIANT_A, 1, MIXED_GROUPS_CONFIG),
+        makeLine("l2", VARIANT_C, 1, MIXED_GROUPS_CONFIG),
+      ]),
+    );
+    expect(result.operations).toHaveLength(1);
+  });
+
+  it("two of the same melt is valid — the melts group allows duplicates", () => {
+    const result = cartTransformRun(
+      input([
+        makeLine("l1", VARIANT_A, 1, MIXED_GROUPS_CONFIG),
+        makeLine("l2", VARIANT_C, 1, MIXED_GROUPS_CONFIG),
+        makeLine("l3", VARIANT_D, 2, MIXED_GROUPS_CONFIG),
+      ]),
+    );
+    expect(result.operations).toHaveLength(1);
+  });
+
+  it("two of the same candle is invalid — the candle group disallows duplicates", () => {
+    const result = cartTransformRun(
+      input([
+        makeLine("l1", VARIANT_A, 2, MIXED_GROUPS_CONFIG),
+        makeLine("l2", VARIANT_C, 1, MIXED_GROUPS_CONFIG),
+      ]),
+    );
+    expect(result.operations).toHaveLength(0);
+  });
+
+  it("filling the optional melts group past its own max is invalid even though the overall max allows it", () => {
+    const result = cartTransformRun(
+      input([
+        makeLine("l1", VARIANT_A, 1, MIXED_GROUPS_CONFIG),
+        makeLine("l2", VARIANT_C, 1, MIXED_GROUPS_CONFIG),
+        makeLine("l3", VARIANT_D, 3, MIXED_GROUPS_CONFIG),
+      ]),
+    );
+    expect(result.operations).toHaveLength(0);
+  });
+
+  it("missing a required group still fails even when melts alone would satisfy the overall item count", () => {
+    const result = cartTransformRun(
+      input([
+        makeLine("l1", VARIANT_A, 1, MIXED_GROUPS_CONFIG), // candle only
+        makeLine("l2", VARIANT_D, 1, MIXED_GROUPS_CONFIG), // melts, optional
+      ]),
+    );
+    expect(result.operations).toHaveLength(0); // bracelet (required) missing
+  });
+
+  it("removing the bracelet after checkout-preview invalidates the whole bundle (brief item 81 pattern, grouped)", () => {
+    const complete = cartTransformRun(
+      input([
+        makeLine("l1", VARIANT_A, 1, MIXED_GROUPS_CONFIG),
+        makeLine("l2", VARIANT_C, 1, MIXED_GROUPS_CONFIG),
+        makeLine("l3", VARIANT_D, 1, MIXED_GROUPS_CONFIG),
+      ]),
+    );
+    expect(complete.operations).toHaveLength(1);
+
+    const afterRemovingBracelet = cartTransformRun(
+      input([
+        makeLine("l1", VARIANT_A, 1, MIXED_GROUPS_CONFIG),
+        makeLine("l3", VARIANT_D, 1, MIXED_GROUPS_CONFIG),
+      ]),
+    );
+    expect(afterRemovingBracelet.operations).toHaveLength(0);
   });
 });
 

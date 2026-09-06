@@ -68,10 +68,17 @@ requested per line (3 points for the one `metafield` field, flat).
    stale `offerVersion` is dropped from the group.
 3. Validate the surviving lines against the config carried in those same
    metafields: sum their quantities into a total item count and check it
-   against `minItems`/`maxItems` and each group's `min`/`max`/`required`;
-   if `allowDuplicates` is false, reject the group if any variant
-   contributes more than one unit in total (a `quantity > 1` line, or the
-   same variant present on more than one line).
+   against `minItems`/`maxItems`, then check each group's own
+   `min`/`max`/`required` (a required group must land inside its range; an
+   optional group left untouched is fine, but once filled must still
+   respect its own range — see docs/MIX_MATCH_ENGINE.md "Grouped bundles").
+   Each group also carries its **own** `allowDuplicates` (Phase 4): a line
+   is matched to the single group whose pool contains its variant, and if
+   that group disallows duplicates, the group is rejected if any of its
+   variants contributes more than one unit in total (a `quantity > 1`
+   line, or the same variant present on more than one line within that
+   group). A flat Mix & Match offer is just a grouped offer with one
+   group, so this is the same check either way.
 
    **Deliberate V1 simplification**: each `(offer, session)` group forms at
    most **one** merged bundle, using every surviving line's own quantity

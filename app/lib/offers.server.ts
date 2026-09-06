@@ -8,6 +8,10 @@ import {
   validateMixMatchOffer,
   type MixMatchOfferInput,
 } from "./validation/mix-match";
+import {
+  validateMixMatchGroupedOffer,
+  type MixMatchGroupedOfferInput,
+} from "./validation/mix-match-grouped";
 
 export class OfferNotFoundError extends Error {}
 export class OfferValidationError extends Error {
@@ -27,15 +31,24 @@ export class OfferConflictError extends Error {
   }
 }
 
+// Shared include shape so a Grouped Mix & Match offer's groups always come
+// back with their own variants, ordered the way the admin builder displays
+// them — see docs/BUNDLE_ARCHITECTURE.md "Admin validation".
+const OFFER_INCLUDE = {
+  tiers: { orderBy: { quantity: "asc" as const } },
+  products: true,
+  variants: true,
+  groups: {
+    orderBy: { sortOrder: "asc" as const },
+    include: { variants: true },
+  },
+};
+
 export async function listOffers(shopId: string) {
   return db.offer.findMany({
     where: { shopId },
     orderBy: { updatedAt: "desc" },
-    include: {
-      tiers: { orderBy: { quantity: "asc" } },
-      products: true,
-      variants: true,
-    },
+    include: OFFER_INCLUDE,
   });
 }
 
@@ -43,11 +56,7 @@ export async function listOffers(shopId: string) {
 export async function getOwnedOffer(shopId: string, offerId: string) {
   const offer = await db.offer.findFirst({
     where: { id: offerId, shopId },
-    include: {
-      tiers: { orderBy: { quantity: "asc" } },
-      products: true,
-      variants: true,
-    },
+    include: OFFER_INCLUDE,
   });
   if (!offer) {
     throw new OfferNotFoundError(`Offer ${offerId} not found for this shop.`);
@@ -326,6 +335,168 @@ export async function updateMixMatchOffer(
   });
 
   await upsertMixMatchPoolAndTiers(offerId, data);
+
+  return getOwnedOffer(shopId, offerId);
+}
+
+export interface MixMatchGroupedGroupData {
+  name: string;
+  description?: string | null;
+  minSelections: number;
+  maxSelections: number;
+  required: boolean;
+  allowDuplicates: boolean;
+  variants: {
+    shopifyVariantId: string;
+    titleCache?: string | null;
+    imageCache?: string | null;
+    priceCache?: number | null;
+  }[];
+}
+
+export interface MixMatchGroupedOfferData {
+  name: string;
+  publicTitle: string;
+  description?: string | null;
+  groups: MixMatchGroupedGroupData[];
+  discountType: "PERCENTAGE" | "FIXED_AMOUNT" | null; // null when using tiers
+  discountValue: number | null;
+  tiers: { quantity: number; discountType: "PERCENTAGE" | "FIXED_AMOUNT"; discountValue: number; label?: string | null }[];
+  startsAt?: Date | null;
+  endsAt?: Date | null;
+}
+
+function toMixMatchGroupedValidationInput(
+  data: MixMatchGroupedOfferData,
+): MixMatchGroupedOfferInput {
+  return {
+    name: data.name,
+    publicTitle: data.publicTitle,
+    groups: data.groups.map((g) => ({
+      name: g.name,
+      minSelections: g.minSelections,
+      maxSelections: g.maxSelections,
+      required: g.required,
+      allowDuplicates: g.allowDuplicates,
+      variantIds: g.variants.map((v) => v.shopifyVariantId),
+    })),
+    discountType: data.discountType,
+    discountValue: data.discountValue,
+    tiers: data.tiers,
+    startsAt: data.startsAt ?? null,
+    endsAt: data.endsAt ?? null,
+  };
+}
+
+/**
+ * Full delete-then-recreate of every BundleGroup (cascades to its
+ * OfferVariant rows) and OfferTier row, same pattern as the flat pool — see
+ * "Prisma composite unique constraint doesn't catch NULLs" in
+ * docs/DATABASE.md for why this, rather than a diff/patch, is what keeps
+ * duplicate group-variant rows from ever accumulating.
+ */
+async function upsertGroupsAndTiers(offerId: string, data: MixMatchGroupedOfferData) {
+  await db.bundleGroup.deleteMany({ where: { offerId } });
+  await db.offerTier.deleteMany({ where: { offerId } });
+
+  for (let index = 0; index < data.groups.length; index++) {
+    const g = data.groups[index];
+    const group = await db.bundleGroup.create({
+      data: {
+        offerId,
+        name: g.name,
+        description: g.description ?? null,
+        sortOrder: index,
+        minSelections: g.minSelections,
+        maxSelections: g.maxSelections,
+        required: g.required,
+        allowDuplicates: g.allowDuplicates,
+      },
+    });
+
+    if (g.variants.length > 0) {
+      await db.offerVariant.createMany({
+        data: g.variants.map((v) => ({
+          offerId,
+          bundleGroupId: group.id,
+          shopifyVariantId: v.shopifyVariantId,
+          titleCache: v.titleCache ?? null,
+          imageCache: v.imageCache ?? null,
+          priceCache: v.priceCache ?? null,
+        })),
+      });
+    }
+  }
+
+  if (data.tiers.length > 0) {
+    await db.offerTier.createMany({
+      data: data.tiers.map((t) => ({
+        offerId,
+        quantity: t.quantity,
+        discountType: t.discountType,
+        discountValue: t.discountValue,
+        label: t.label ?? null,
+      })),
+    });
+  }
+}
+
+export async function createMixMatchGroupedDraft(shopId: string, data: MixMatchGroupedOfferData) {
+  const validation = validateMixMatchGroupedOffer(toMixMatchGroupedValidationInput(data));
+  if (!validation.valid) {
+    throw new OfferValidationError(validation.errors);
+  }
+
+  const offer = await db.offer.create({
+    data: {
+      shopId,
+      type: "MIX_MATCH_GROUPED",
+      status: "DRAFT",
+      name: data.name,
+      publicTitle: data.publicTitle,
+      description: data.description ?? null,
+      // minItems/maxItems/allowDuplicates stay null/default for grouped
+      // offers — BundleGroup rows are the source of truth. See
+      // docs/MIX_MATCH_ENGINE.md "Grouped bundles".
+      discountType: data.discountType,
+      discountValue: data.discountValue,
+      startsAt: data.startsAt ?? null,
+      endsAt: data.endsAt ?? null,
+    },
+  });
+
+  await upsertGroupsAndTiers(offer.id, data);
+
+  return getOwnedOffer(shopId, offer.id);
+}
+
+export async function updateMixMatchGroupedOffer(
+  shopId: string,
+  offerId: string,
+  data: MixMatchGroupedOfferData,
+) {
+  await getOwnedOffer(shopId, offerId); // 404s if not owned
+
+  const validation = validateMixMatchGroupedOffer(toMixMatchGroupedValidationInput(data));
+  if (!validation.valid) {
+    throw new OfferValidationError(validation.errors);
+  }
+
+  await db.offer.update({
+    where: { id: offerId },
+    data: {
+      name: data.name,
+      publicTitle: data.publicTitle,
+      description: data.description ?? null,
+      discountType: data.discountType,
+      discountValue: data.discountValue,
+      startsAt: data.startsAt ?? null,
+      endsAt: data.endsAt ?? null,
+      configVersion: { increment: 1 },
+    },
+  });
+
+  await upsertGroupsAndTiers(offerId, data);
 
   return getOwnedOffer(shopId, offerId);
 }

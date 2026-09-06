@@ -49,10 +49,35 @@
     return best;
   }
 
-  function computeSummary(bundle, selections) {
+  function isGrouped(bundle) {
+    return Array.isArray(bundle.groups) && bundle.groups.length > 0;
+  }
+
+  function allProducts(bundle) {
+    return isGrouped(bundle) ? bundle.groups.flatMap((g) => g.products) : bundle.products;
+  }
+
+  function groupItemCount(selections, group) {
+    return group.products.reduce((sum, p) => sum + (selections.get(p.variantId) || 0), 0);
+  }
+
+  /**
+   * A required group must land inside its own min/max; an optional group
+   * left untouched (0 items) is fine, but once the customer starts filling
+   * it, it must still respect its own range — mirrors the Cart Transform
+   * function's own per-group check (extensions/mix-match-cart-transform),
+   * so this preview can't promise a bundle that checkout would reject.
+   */
+  function isGroupSatisfied(selections, group) {
+    const count = groupItemCount(selections, group);
+    if (group.required) return count >= group.minSelections && count <= group.maxSelections;
+    return count === 0 || (count >= group.minSelections && count <= group.maxSelections);
+  }
+
+  function computeSummary(bundle, selections, products) {
     let regular = 0;
     let totalItems = 0;
-    for (const product of bundle.products) {
+    for (const product of products) {
       const qty = selections.get(product.variantId) || 0;
       totalItems += qty;
       if (product.price != null) regular += product.price * qty;
@@ -74,16 +99,21 @@
           : Math.max(0, regular - discountValue);
     }
 
+    const isComplete =
+      isGrouped(bundle)
+        ? bundle.groups.every((g) => isGroupSatisfied(selections, g))
+        : totalItems >= bundle.minItems && totalItems <= bundle.maxItems;
+
     return {
       totalItems,
       regular,
       bundlePrice,
       savings: regular - bundlePrice,
-      isComplete: totalItems >= bundle.minItems && totalItems <= bundle.maxItems,
+      isComplete,
     };
   }
 
-  function render(root, bundle, currency, showSavings) {
+  function renderFlat(root, bundle, currency, showSavings) {
     const selections = new Map();
     root.innerHTML = "";
 
@@ -127,7 +157,7 @@
     container.appendChild(errorEl);
 
     function update() {
-      const summaryData = computeSummary(bundle, selections);
+      const summaryData = computeSummary(bundle, selections, bundle.products);
 
       progress.textContent = bundle.minItems === bundle.maxItems
         ? `${summaryData.totalItems} / ${bundle.maxItems} selected`
@@ -178,131 +208,338 @@
     }
 
     bundle.products.forEach((product) => {
-      const card = document.createElement("div");
-      card.className = "bundlepilot-mm__card";
-
-      if (product.imageUrl) {
-        const img = document.createElement("img");
-        img.src = product.imageUrl;
-        img.alt = product.title;
-        img.loading = "lazy";
-        card.appendChild(img);
-      }
-
-      const title = document.createElement("p");
-      title.className = "bundlepilot-mm__card-title";
-      title.textContent = product.title;
-      card.appendChild(title);
-
-      if (product.price != null) {
-        const price = document.createElement("p");
-        price.className = "bundlepilot-mm__card-price";
-        price.textContent = formatMoney(product.price, currency);
-        card.appendChild(price);
-      }
-
-      if (bundle.allowDuplicates) {
-        const stepper = document.createElement("div");
-        stepper.className = "bundlepilot-mm__stepper";
-
-        const decrement = document.createElement("button");
-        decrement.type = "button";
-        decrement.textContent = "−";
-        decrement.setAttribute("aria-label", `Remove one ${product.title}`);
-
-        const countEl = document.createElement("span");
-        countEl.textContent = "0";
-        countEl.setAttribute("aria-live", "polite");
-
-        const increment = document.createElement("button");
-        increment.type = "button";
-        increment.textContent = "+";
-        increment.dataset.bundlepilotIncrement = "true";
-        increment.setAttribute("aria-label", `Add one ${product.title}`);
-
-        decrement.addEventListener("click", () => {
-          const current = selections.get(product.variantId) || 0;
-          if (current > 0) selections.set(product.variantId, current - 1);
-          countEl.textContent = String(selections.get(product.variantId) || 0);
-          update();
-        });
-        increment.addEventListener("click", () => {
-          const current = selections.get(product.variantId) || 0;
-          selections.set(product.variantId, current + 1);
-          countEl.textContent = String(current + 1);
-          update();
-        });
-
-        stepper.append(decrement, countEl, increment);
-        card.appendChild(stepper);
-      } else {
-        const label = document.createElement("label");
-        label.className = "bundlepilot-mm__checkbox-label";
-
-        const checkbox = document.createElement("input");
-        checkbox.type = "checkbox";
-        checkbox.dataset.bundlepilotCheckbox = "true";
-        checkbox.dataset.variantId = product.variantId;
-
-        checkbox.addEventListener("change", () => {
-          selections.set(product.variantId, checkbox.checked ? 1 : 0);
-          update();
-        });
-
-        const labelText = document.createElement("span");
-        labelText.textContent = "Select";
-
-        label.append(checkbox, labelText);
-        card.appendChild(label);
-      }
-
-      grid.appendChild(card);
+      grid.appendChild(
+        createProductCard(product, currency, bundle.allowDuplicates, selections, update),
+      );
     });
 
-    addButton.addEventListener("click", async () => {
-      const items = bundle.products
-        .filter((p) => (selections.get(p.variantId) || 0) > 0)
-        .map((p) => ({
-          id: Number(p.variantId.split("/").pop()),
-          quantity: selections.get(p.variantId),
-          properties: {
-            _bp_offer: bundle.offerId,
-            _bp_session: generateSessionId(),
-          },
-        }));
-
-      errorEl.hidden = true;
-      addButton.disabled = true;
-      addButton.textContent = "Adding…";
-
-      try {
-        const response = await fetch(
-          (window.Shopify?.routes?.root || "/") + "cart/add.js",
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json", Accept: "application/json" },
-            body: JSON.stringify({ items }),
-          },
-        );
-        if (!response.ok) {
-          const body = await response.json().catch(() => ({}));
-          throw new Error(body.description || "One of the selected items is no longer available.");
-        }
-        document.dispatchEvent(
-          new CustomEvent("bundlepilot:added-to-cart", { detail: { offerId: bundle.offerId } }),
-        );
-        window.location.href = (window.Shopify?.routes?.root || "/") + "cart";
-      } catch (error) {
-        errorEl.textContent =
-          "We couldn't add this bundle to your cart. Please update your selection and try again. " +
-          "(" + (error instanceof Error ? error.message : "Unknown error") + ")";
-        errorEl.hidden = false;
-        addButton.textContent = "Add bundle to cart";
-        update();
-      }
+    addButton.addEventListener("click", () => {
+      submitAddToCart(bundle.offerId, bundle.products, selections, addButton, errorEl, update);
     });
 
     update();
+    root.appendChild(container);
+  }
+
+  /** Renders one product's stepper (allowDuplicates) or checkbox (else) card. */
+  function createProductCard(product, currency, allowDuplicates, selections, onChange) {
+    const card = document.createElement("div");
+    card.className = "bundlepilot-mm__card";
+
+    if (product.imageUrl) {
+      const img = document.createElement("img");
+      img.src = product.imageUrl;
+      img.alt = product.title;
+      img.loading = "lazy";
+      card.appendChild(img);
+    }
+
+    const title = document.createElement("p");
+    title.className = "bundlepilot-mm__card-title";
+    title.textContent = product.title;
+    card.appendChild(title);
+
+    if (product.price != null) {
+      const price = document.createElement("p");
+      price.className = "bundlepilot-mm__card-price";
+      price.textContent = formatMoney(product.price, currency);
+      card.appendChild(price);
+    }
+
+    if (allowDuplicates) {
+      const stepper = document.createElement("div");
+      stepper.className = "bundlepilot-mm__stepper";
+
+      const decrement = document.createElement("button");
+      decrement.type = "button";
+      decrement.textContent = "−";
+      decrement.setAttribute("aria-label", `Remove one ${product.title}`);
+
+      const countEl = document.createElement("span");
+      countEl.textContent = String(selections.get(product.variantId) || 0);
+      countEl.setAttribute("aria-live", "polite");
+
+      const increment = document.createElement("button");
+      increment.type = "button";
+      increment.textContent = "+";
+      increment.dataset.bundlepilotIncrement = "true";
+      increment.setAttribute("aria-label", `Add one ${product.title}`);
+
+      decrement.addEventListener("click", () => {
+        const current = selections.get(product.variantId) || 0;
+        if (current > 0) selections.set(product.variantId, current - 1);
+        countEl.textContent = String(selections.get(product.variantId) || 0);
+        onChange();
+      });
+      increment.addEventListener("click", () => {
+        const current = selections.get(product.variantId) || 0;
+        selections.set(product.variantId, current + 1);
+        countEl.textContent = String(current + 1);
+        onChange();
+      });
+
+      stepper.append(decrement, countEl, increment);
+      card.appendChild(stepper);
+    } else {
+      const label = document.createElement("label");
+      label.className = "bundlepilot-mm__checkbox-label";
+
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.dataset.bundlepilotCheckbox = "true";
+      checkbox.dataset.variantId = product.variantId;
+      checkbox.checked = (selections.get(product.variantId) || 0) > 0;
+
+      checkbox.addEventListener("change", () => {
+        selections.set(product.variantId, checkbox.checked ? 1 : 0);
+        onChange();
+      });
+
+      const labelText = document.createElement("span");
+      labelText.textContent = "Select";
+
+      label.append(checkbox, labelText);
+      card.appendChild(label);
+    }
+
+    return card;
+  }
+
+  /** Shared "Add bundle to cart" flow for both the flat and grouped renderers. */
+  async function submitAddToCart(offerId, products, selections, addButton, errorEl, onSettled) {
+    const items = products
+      .filter((p) => (selections.get(p.variantId) || 0) > 0)
+      .map((p) => ({
+        id: Number(p.variantId.split("/").pop()),
+        quantity: selections.get(p.variantId),
+        properties: {
+          _bp_offer: offerId,
+          _bp_session: generateSessionId(),
+        },
+      }));
+
+    errorEl.hidden = true;
+    addButton.disabled = true;
+    addButton.textContent = "Adding…";
+
+    try {
+      const response = await fetch((window.Shopify?.routes?.root || "/") + "cart/add.js", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ items }),
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.description || "One of the selected items is no longer available.");
+      }
+      document.dispatchEvent(
+        new CustomEvent("bundlepilot:added-to-cart", { detail: { offerId } }),
+      );
+      window.location.href = (window.Shopify?.routes?.root || "/") + "cart";
+    } catch (error) {
+      errorEl.textContent =
+        "We couldn't add this bundle to your cart. Please update your selection and try again. " +
+        "(" + (error instanceof Error ? error.message : "Unknown error") + ")";
+      errorEl.hidden = false;
+      addButton.textContent = "Add bundle to cart";
+      onSettled();
+    }
+  }
+
+  /**
+   * Step-by-step flow for a Grouped Mix & Match bundle: one screen per
+   * BundleGroup, then a final summary screen with the full price preview
+   * and "Add bundle to cart" — see docs/THEME_EXTENSION.md "Mix & Match
+   * block". Selections persist across steps (one shared Map for the whole
+   * bundle), so navigating back and forth never loses a prior choice.
+   */
+  function renderGrouped(root, bundle, currency, showSavings) {
+    const selections = new Map();
+    const products = allProducts(bundle);
+    // 0..groups.length-1 are group steps; groups.length is the summary screen.
+    let step = 0;
+
+    root.innerHTML = "";
+    const container = document.createElement("div");
+    container.className = "bundlepilot-mm__container";
+
+    const heading = document.createElement("h3");
+    heading.className = "bundlepilot-mm__heading";
+    heading.textContent = bundle.publicTitle;
+    container.appendChild(heading);
+
+    if (bundle.description) {
+      const desc = document.createElement("p");
+      desc.className = "bundlepilot-mm__description";
+      desc.textContent = bundle.description;
+      container.appendChild(desc);
+    }
+
+    const progress = document.createElement("p");
+    progress.className = "bundlepilot-mm__progress";
+    container.appendChild(progress);
+
+    const body = document.createElement("div");
+    container.appendChild(body);
+
+    const errorEl = document.createElement("p");
+    errorEl.className = "bundlepilot-mm__error";
+    errorEl.hidden = true;
+    container.appendChild(errorEl);
+
+    function renderGroupStep(group, index) {
+      body.innerHTML = "";
+      progress.textContent =
+        `Step ${index + 1} of ${bundle.groups.length}: ${group.name}` +
+        (group.required ? "" : " (optional)");
+
+      if (group.description) {
+        const desc = document.createElement("p");
+        desc.className = "bundlepilot-mm__description";
+        desc.textContent = group.description;
+        body.appendChild(desc);
+      }
+
+      const rangeLabel = document.createElement("p");
+      rangeLabel.className = "bundlepilot-mm__progress";
+      rangeLabel.textContent =
+        group.minSelections === group.maxSelections
+          ? `Choose ${group.maxSelections}`
+          : `Choose ${group.minSelections}–${group.maxSelections}`;
+      body.appendChild(rangeLabel);
+
+      const grid = document.createElement("div");
+      grid.className = "bundlepilot-mm__grid";
+      body.appendChild(grid);
+
+      function updateStep() {
+        const count = groupItemCount(selections, group);
+        grid.querySelectorAll("[data-bundlepilot-increment]").forEach((btn) => {
+          btn.disabled = count >= group.maxSelections;
+        });
+        grid.querySelectorAll("[data-bundlepilot-checkbox]").forEach((input) => {
+          if (!selections.get(input.dataset.variantId)) {
+            input.disabled = count >= group.maxSelections;
+          }
+        });
+        nextButton.disabled = !isGroupSatisfied(selections, group);
+      }
+
+      group.products.forEach((product) => {
+        grid.appendChild(
+          createProductCard(product, currency, group.allowDuplicates, selections, updateStep),
+        );
+      });
+
+      const nav = document.createElement("div");
+      nav.className = "bundlepilot-mm__stepnav";
+
+      const backButton = document.createElement("button");
+      backButton.type = "button";
+      backButton.className = "bundlepilot-mm__back";
+      backButton.textContent = "Back";
+      backButton.disabled = index === 0;
+      backButton.addEventListener("click", () => goToStep(index - 1));
+
+      const nextButton = document.createElement("button");
+      nextButton.type = "button";
+      nextButton.className = "bundlepilot-mm__add";
+      nextButton.textContent = index === bundle.groups.length - 1 ? "Review bundle" : "Next";
+      nextButton.addEventListener("click", () => goToStep(index + 1));
+
+      nav.append(backButton, nextButton);
+      body.appendChild(nav);
+
+      updateStep();
+    }
+
+    function renderSummaryStep() {
+      body.innerHTML = "";
+      progress.textContent = "Review your bundle";
+
+      bundle.groups.forEach((group) => {
+        const chosen = group.products.filter((p) => (selections.get(p.variantId) || 0) > 0);
+        if (chosen.length === 0) return;
+
+        const groupHeading = document.createElement("p");
+        groupHeading.className = "bundlepilot-mm__card-title";
+        groupHeading.textContent = group.name;
+        body.appendChild(groupHeading);
+
+        const list = document.createElement("p");
+        list.className = "bundlepilot-mm__description";
+        list.textContent = chosen
+          .map((p) => {
+            const qty = selections.get(p.variantId);
+            return qty > 1 ? `${p.title} ×${qty}` : p.title;
+          })
+          .join(", ");
+        body.appendChild(list);
+      });
+
+      const summary = document.createElement("div");
+      summary.className = "bundlepilot-mm__summary";
+      body.appendChild(summary);
+
+      const summaryData = computeSummary(bundle, selections, products);
+      if (summaryData.totalItems > 0) {
+        const regularRow = document.createElement("p");
+        regularRow.textContent = `Regular price: ${formatMoney(summaryData.regular, currency)}`;
+        summary.appendChild(regularRow);
+
+        if (showSavings && summaryData.savings > 0) {
+          const savingsRow = document.createElement("p");
+          savingsRow.className = "bundlepilot-mm__savings";
+          savingsRow.textContent = `You save: ${formatMoney(summaryData.savings, currency)}`;
+          summary.appendChild(savingsRow);
+        }
+
+        const bundleRow = document.createElement("p");
+        bundleRow.className = "bundlepilot-mm__bundle-price";
+        bundleRow.textContent = `Bundle price: ${formatMoney(summaryData.bundlePrice, currency)}`;
+        summary.appendChild(bundleRow);
+      }
+
+      if (summaryData.isComplete) {
+        const badge = document.createElement("p");
+        badge.className = "bundlepilot-mm__complete";
+        badge.textContent = "Bundle complete ✓";
+        body.appendChild(badge);
+      }
+
+      const nav = document.createElement("div");
+      nav.className = "bundlepilot-mm__stepnav";
+
+      const backButton = document.createElement("button");
+      backButton.type = "button";
+      backButton.className = "bundlepilot-mm__back";
+      backButton.textContent = "Back";
+      backButton.addEventListener("click", () => goToStep(bundle.groups.length - 1));
+      nav.appendChild(backButton);
+      body.appendChild(nav);
+
+      const addButton = document.createElement("button");
+      addButton.type = "button";
+      addButton.className = "bundlepilot-mm__add";
+      addButton.textContent = "Add bundle to cart";
+      addButton.disabled = !summaryData.isComplete;
+      addButton.addEventListener("click", () => {
+        submitAddToCart(bundle.offerId, products, selections, addButton, errorEl, renderSummaryStep);
+      });
+      body.appendChild(addButton);
+    }
+
+    function goToStep(index) {
+      step = index;
+      errorEl.hidden = true;
+      if (step >= bundle.groups.length) {
+        renderSummaryStep();
+      } else {
+        renderGroupStep(bundle.groups[step], step);
+      }
+    }
+
+    goToStep(step);
     root.appendChild(container);
   }
 
@@ -337,7 +574,13 @@
       return;
     }
 
-    render(root, bundle, root.dataset.currency || "USD", root.dataset.showSavings === "true");
+    const currency = root.dataset.currency || "USD";
+    const showSavings = root.dataset.showSavings === "true";
+    if (isGrouped(bundle)) {
+      renderGrouped(root, bundle, currency, showSavings);
+    } else {
+      renderFlat(root, bundle, currency, showSavings);
+    }
   }
 
   document.querySelectorAll("[data-bundlepilot-mix-match]").forEach(init);

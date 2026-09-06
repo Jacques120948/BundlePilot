@@ -20,6 +20,20 @@ This is why `OfferProduct`/`OfferVariant` have optional `bundleGroupId`
 columns: for grouped bundles the same tables are scoped per-group instead of
 per-offer, without needing a separate table per offer type.
 
+### The Offer spine has no offer-wide min/max for grouped bundles
+
+`Offer.minItems`/`maxItems`/`allowDuplicates` are null/unused for
+`MIX_MATCH_GROUPED` (implemented Phase 4) — each `BundleGroup` carries its
+own `minSelections`/`maxSelections`/`allowDuplicates` instead, and the
+bundle's overall size range is *derived* at config-build time: the minimum
+is the sum of every *required* group's minimum (an optional group never
+forces a floor), and the maximum is the sum of every group's maximum (an
+optional group can still be filled up to its own max). `discountType`/
+`discountValue` (or `OfferTier` rows) stay on `Offer` and remain bundle-wide
+for grouped offers too — there's no per-group discount, only per-group
+selection rules. See `app/lib/shopify/mix-match-config.ts#computeGroupedAggregateBounds`
+and docs/MIX_MATCH_ENGINE.md "Grouped bundles".
+
 ## Selection mode (manual vs. collection)
 
 `selectionMode = COLLECTION` stores `sourceCollectionId` and treats the
@@ -75,12 +89,16 @@ Enforced server-side before allowing `status` to move to `ACTIVE` or
   `allowDuplicates`) — otherwise the bundle is uncompletable, per the
   brief's worked example (group needs 3, only 2 unique products, no
   duplicates allowed → reject).
-- `minSelections <= maxSelections` on every group, and `minItems <=
-  maxItems` on the offer.
+- `minSelections <= maxSelections` on every group (Grouped Mix & Match),
+  or `minItems <= maxItems` on the offer (Quantity Break / flat Mix &
+  Match). A grouped offer has no `minItems`/`maxItems` of its own — see
+  "The Offer spine has no offer-wide min/max for grouped bundles" below.
 - no offer/group with zero products.
 - no duplicate `OfferTier.quantity` values within one offer.
 - combined pool size across an offer's products/groups stays within the cap
   in docs/BUNDLE_LIMITATIONS.md.
+- (Grouped only) the same variant can't be placed in more than one group in
+  the same offer — see docs/MIX_MATCH_ENGINE.md "Grouped bundles" for why.
 - **conflict check** (brief item 36): before activating, check whether any
   variant in this offer's scope is already claimed by a different *active*
   offer of a type that can't safely coexist on the same variant (two

@@ -69,9 +69,10 @@ Shopify's own documentation always overrides this file if they've diverged
 
 - [x] App blocks (not legacy ScriptTag/Asset injection) for storefront UI —
       Quantity Break block shipped in Phase 1, Mix & Match block shipped in
-      Phase 3 (extensions/bundlepilot-theme); Grouped Mix & Match reuses the
-      same block in Phase 4. No ScriptTag/Asset REST calls anywhere in the
-      code base.
+      Phase 3 (extensions/bundlepilot-theme); Phase 4 extended that same
+      Mix & Match block with a step-by-step flow for Grouped Mix & Match
+      (docs/THEME_EXTENSION.md "Grouped Mix & Match step-by-step flow").
+      No ScriptTag/Asset REST calls anywhere in the code base.
 - [x] "Add to my theme" deep link implemented (Phase 3) — see
       `app/routes/app.settings.tsx` and docs/THEME_EXTENSION.md "Adding the
       blocks to a theme"; not yet clicked through on a real dev store (see

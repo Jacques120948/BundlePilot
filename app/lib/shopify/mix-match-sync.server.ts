@@ -1,6 +1,6 @@
 import type { AdminGraphqlClient } from "@shopify/shopify-app-react-router/server";
 import { METAFIELD_NAMESPACE_APP, METAFIELD_KEYS } from "./metafields";
-import { buildBundleComponentConfig, type MixMatchOfferForConfig } from "./mix-match-config";
+import type { BundleComponentConfig } from "./mix-match-config";
 
 interface UserError {
   field: string[];
@@ -169,22 +169,24 @@ export async function ensureMixMatchParentVariant(
 }
 
 /**
- * Writes the denormalized `bundle-component` metafield to every variant
- * currently in the offer's pool, and clears it from any variant that was
- * in a *previous* version of the pool but has since been removed (else a
- * dropped variant would keep believing it's still part of the bundle
- * forever). See docs/MIX_MATCH_ENGINE.md.
+ * Writes an already-built `bundle-component` config to every variant
+ * currently in `variantIds`, and clears it from any variant that was in a
+ * *previous* version of the offer's pool/groups but has since been removed
+ * (else a dropped variant would keep believing it's still part of the
+ * bundle forever). Shared by flat Mix & Match (single pool) and Grouped
+ * Mix & Match (union of every group's variants) — see
+ * docs/MIX_MATCH_ENGINE.md; the config itself is built by the caller via
+ * `buildBundleComponentConfig` or `buildGroupedBundleComponentConfig`.
  */
-export async function syncMixMatchVariantMetafields(
+export async function syncBundleComponentMetafields(
   admin: AdminGraphqlClient,
-  offer: MixMatchOfferForConfig,
+  config: BundleComponentConfig,
+  variantIds: string[],
   previousVariantIds: string[],
-  active: boolean,
 ): Promise<void> {
-  const config = buildBundleComponentConfig(offer, active);
   const value = JSON.stringify(config);
 
-  if (offer.variantIds.length > 0) {
+  if (variantIds.length > 0) {
     const setResponse = await admin(
       `#graphql
         mutation SyncBundleComponentMetafields($metafields: [MetafieldsSetInput!]!) {
@@ -194,7 +196,7 @@ export async function syncMixMatchVariantMetafields(
         }`,
       {
         variables: {
-          metafields: offer.variantIds.map((variantId) => ({
+          metafields: variantIds.map((variantId) => ({
             ownerId: variantId,
             namespace: METAFIELD_NAMESPACE_APP,
             key: METAFIELD_KEYS.bundleComponent,
@@ -210,7 +212,7 @@ export async function syncMixMatchVariantMetafields(
     assertNoErrors(setJson.data?.metafieldsSet?.userErrors, "write bundle-component metafields");
   }
 
-  const removedVariantIds = previousVariantIds.filter((id) => !offer.variantIds.includes(id));
+  const removedVariantIds = previousVariantIds.filter((id) => !variantIds.includes(id));
   if (removedVariantIds.length > 0) {
     const deleteResponse = await admin(
       `#graphql
