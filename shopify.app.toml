@@ -1,0 +1,44 @@
+# This file stores configurations for your Shopify app.
+# Run `npm run config:link` to link this to an app in your Partner org.
+name = "BundlePilot"
+client_id = ""
+application_url = ""
+embedded = true
+
+[access_scopes]
+# Minimum scopes for V1 (Quantity Breaks + Mix & Match). See docs/SHOPIFY_SCOPES.md
+# for the reason each scope is requested.
+scopes = "write_products,write_discounts,write_cart_transforms"
+
+[webhooks]
+api_version = "2026-07"
+
+  # Handled by: /app/routes/webhooks.app.uninstalled.tsx
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/app/uninstalled"
+  topics = ["app/uninstalled"]
+
+  # Handled by: /app/routes/webhooks.app.scopes_update.tsx
+  [[webhooks.subscriptions]]
+  topics = ["app/scopes_update"]
+  uri = "/webhooks/app/scopes_update"
+
+  # Mandatory compliance webhooks (required for every public app).
+  # See docs/SHOPIFY_COMPLIANCE.md and https://shopify.dev/docs/apps/build/privacy-law-compliance
+  # Handled by: /app/routes/webhooks.customers.data_request.tsx
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/customers/data_request"
+  compliance_topics = ["customers/data_request"]
+
+  # Handled by: /app/routes/webhooks.customers.redact.tsx
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/customers/redact"
+  compliance_topics = ["customers/redact"]
+
+  # Handled by: /app/routes/webhooks.shop.redact.tsx
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/shop/redact"
+  compliance_topics = ["shop/redact"]
+
+[build]
+include_config_on_deploy = true

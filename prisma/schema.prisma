@@ -1,0 +1,330 @@
+// BundlePilot database schema.
+//
+// See docs/DATABASE.md for the rationale behind each model and
+// docs/BUNDLE_ARCHITECTURE.md for how Offer / BundleGroup map to the
+// storefront and Shopify Functions.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Auth / platform
+// ---------------------------------------------------------------------------
+
+// One row per installed shop. This is the tenant boundary: every other
+// business-data model below is scoped by shopId and every server-side query
+// MUST filter on it (see app/lib/tenant.server.ts).
+model Shop {
+  id            String    @id @default(cuid())
+  shopDomain    String    @unique // e.g. "example.myshopify.com"
+  installedAt   DateTime  @default(now())
+  uninstalledAt DateTime?
+  active        Boolean   @default(true)
+  timezone      String    @default("UTC")
+  locale        String    @default("en")
+  planName      String? // Shopify plan name (e.g. "basic"), for support/debugging only
+
+  offers        Offer[]
+  analyticsDays AnalyticsDaily[]
+  subscription  Subscription?
+  auditLogs     AuditLog[]
+
+  createdAt DateTime @updatedAt @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([shopDomain])
+}
+
+// Shopify session storage, managed by @shopify/shopify-app-session-storage-prisma.
+// Not scoped by our own Shop.id — keyed by shop domain per Shopify's own model.
+model Session {
+  id                  String    @id
+  shop                String
+  state               String
+  isOnline            Boolean   @default(false)
+  scope               String?
+  expires             DateTime?
+  accessToken         String
+  userId              BigInt?
+  firstName           String?
+  lastName            String?
+  email               String?
+  accountOwner        Boolean   @default(false)
+  locale              String?
+  collaborator        Boolean?  @default(false)
+  emailVerified       Boolean?  @default(false)
+  refreshToken        String?
+  refreshTokenExpires DateTime?
+}
+
+// ---------------------------------------------------------------------------
+// Offers (bundles / quantity breaks)
+// ---------------------------------------------------------------------------
+
+// Conceptual offer type. New types (FIXED_BUNDLE, BOGO, FREE_GIFT,
+// FREQUENTLY_BOUGHT_TOGETHER, ...) can be added without restructuring the
+// tables below — see docs/BUNDLE_ARCHITECTURE.md "Extending OfferType".
+enum OfferType {
+  QUANTITY_BREAK
+  MIX_MATCH
+  MIX_MATCH_GROUPED
+}
+
+enum OfferStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  SCHEDULED
+  EXPIRED
+  ARCHIVED
+}
+
+enum DiscountType {
+  PERCENTAGE
+  FIXED_AMOUNT
+  FIXED_BUNDLE_PRICE
+}
+
+model Offer {
+  id          String      @id @default(cuid())
+  shopId      String
+  shop        Shop        @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  type        OfferType
+  status      OfferStatus @default(DRAFT)
+
+  name        String // internal/admin-facing name
+  publicTitle String // customer-facing title shown by the theme extension
+  description String?
+
+  // Quantity Break + flat Mix & Match configuration. Ignored / null for
+  // MIX_MATCH_GROUPED, which uses BundleGroup rows instead.
+  discountType  DiscountType?
+  discountValue Decimal?      @db.Decimal(10, 2)
+  minItems      Int? // Mix & Match: minimum total components required
+  maxItems      Int? // Mix & Match: maximum total components allowed
+  allowDuplicates Boolean     @default(false)
+
+  // Product/variant selection mode for the offer's own pool (Quantity Break
+  // products, or the flat Mix & Match pool). Grouped bundles use
+  // BundleGroupProduct per group instead.
+  selectionMode SelectionMode @default(MANUAL)
+  sourceCollectionId String? // Shopify Collection GID, when selectionMode = COLLECTION
+
+  combinesWithProductDiscounts  Boolean @default(false)
+  combinesWithOrderDiscounts    Boolean @default(false)
+  combinesWithShippingDiscounts Boolean @default(true)
+
+  startsAt DateTime?
+  endsAt   DateTime?
+
+  // Shopify object IDs created/owned by this offer.
+  shopifyDiscountId     String? // DiscountAutomaticApp GID (Quantity Break)
+  shopifyMetaobjectId   String? // $app:bundle_offer metaobject GID (Mix & Match)
+  shopifyMetaobjectHandle String?
+
+  products OfferProduct[]
+  variants OfferVariant[]
+  tiers    OfferTier[]
+  groups   BundleGroup[]
+  style    OfferStyle?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([shopId, status])
+  @@index([shopId, type])
+}
+
+enum SelectionMode {
+  MANUAL
+  COLLECTION
+}
+
+// Flat product pool: Quantity Break products, or ungrouped Mix & Match pool.
+model OfferProduct {
+  id               String  @id @default(cuid())
+  offerId          String
+  offer            Offer   @relation(fields: [offerId], references: [id], onDelete: Cascade)
+  shopifyProductId String // Product GID
+  // Cached display data only — Shopify remains the source of truth and this
+  // is refreshed opportunistically; never used for pricing decisions.
+  titleCache  String?
+  imageCache  String?
+  excluded    Boolean @default(false) // manual exclusion when selectionMode = COLLECTION
+
+  variants     OfferVariant[]
+  groupLinks   BundleGroupProduct[]
+
+  createdAt DateTime @default(now())
+
+  @@unique([offerId, shopifyProductId])
+}
+
+// Individual variant selection, used when a merchant restricts an offer to
+// specific variants instead of "all variants" of a product.
+model OfferVariant {
+  id               String        @id @default(cuid())
+  offerId          String
+  offer            Offer         @relation(fields: [offerId], references: [id], onDelete: Cascade)
+  offerProductId   String?
+  offerProduct     OfferProduct? @relation(fields: [offerProductId], references: [id], onDelete: Cascade)
+  bundleGroupId    String?
+  bundleGroup      BundleGroup?  @relation(fields: [bundleGroupId], references: [id], onDelete: Cascade)
+  shopifyVariantId String // ProductVariant GID
+  titleCache       String?
+  priceCache       Decimal?      @db.Decimal(10, 2)
+
+  createdAt DateTime @default(now())
+
+  @@unique([offerId, shopifyVariantId, bundleGroupId])
+}
+
+// Quantity Break tiers ("2 units -> 10% off"), and optional Mix & Match
+// volume tiers ("choose 4 -> 20% off" instead of a single flat discount).
+model OfferTier {
+  id            String       @id @default(cuid())
+  offerId       String
+  offer         Offer        @relation(fields: [offerId], references: [id], onDelete: Cascade)
+  quantity      Int // minimum quantity/items that unlocks this tier
+  discountType  DiscountType
+  discountValue Decimal      @db.Decimal(10, 2)
+  label         String? // e.g. "Best value" badge text
+
+  createdAt DateTime @default(now())
+
+  @@unique([offerId, quantity])
+}
+
+// A step/group in a Grouped Mix & Match bundle ("Choose 1 candle").
+model BundleGroup {
+  id             String  @id @default(cuid())
+  offerId        String
+  offer          Offer   @relation(fields: [offerId], references: [id], onDelete: Cascade)
+  name           String
+  description    String?
+  sortOrder      Int     @default(0)
+  minSelections  Int     @default(1)
+  maxSelections  Int     @default(1)
+  required       Boolean @default(true)
+  allowDuplicates Boolean @default(false)
+
+  productLinks BundleGroupProduct[]
+  variants     OfferVariant[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([offerId, sortOrder])
+}
+
+// Explicit join table so a product can belong to multiple groups within the
+// same offer without ambiguity (BundleGroupProduct rather than a bare FK on
+// OfferProduct, since OfferProduct is also reused for flat pools).
+model BundleGroupProduct {
+  id             String       @id @default(cuid())
+  bundleGroupId  String
+  bundleGroup    BundleGroup  @relation(fields: [bundleGroupId], references: [id], onDelete: Cascade)
+  offerProductId String
+  offerProduct   OfferProduct @relation(fields: [offerProductId], references: [id], onDelete: Cascade)
+
+  @@unique([bundleGroupId, offerProductId])
+}
+
+// Visual customization for the theme app extension rendering of an offer.
+model OfferStyle {
+  id      String @id @default(cuid())
+  offerId String @unique
+  offer   Offer  @relation(fields: [offerId], references: [id], onDelete: Cascade)
+
+  template        String  @default("minimal") // minimal | cards | compact | premium
+  primaryColor    String?
+  textColor       String?
+  backgroundColor String?
+  borderColor     String?
+  borderRadius    Int?
+  badgeColor      String?
+  imageAspectRatio String?
+  showRegularPrice Boolean @default(true)
+  showSavings      Boolean @default(true)
+  showPercentage   Boolean @default(true)
+  customLabels     Json? // { addToCart: "...", complete: "...", ... }
+
+  updatedAt DateTime @updatedAt
+}
+
+// ---------------------------------------------------------------------------
+// Analytics (no personal data — see docs/SHOPIFY_SCOPES.md data minimization)
+// ---------------------------------------------------------------------------
+
+model AnalyticsDaily {
+  id           String   @id @default(cuid())
+  shopId       String
+  shop         Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  offerId      String? // nullable: null rows can aggregate shop-wide totals if ever needed
+  date         DateTime @db.Date
+  views        Int      @default(0)
+  starts       Int      @default(0)
+  completions  Int      @default(0)
+  addToCarts   Int      @default(0)
+
+  @@unique([shopId, offerId, date])
+  @@index([shopId, date])
+}
+
+// ---------------------------------------------------------------------------
+// Billing / entitlements (see docs/BILLING.md)
+// ---------------------------------------------------------------------------
+
+enum PlanTier {
+  DEVELOPMENT
+  BASIC
+  PRO
+}
+
+model Subscription {
+  id            String   @id @default(cuid())
+  shopId        String   @unique
+  shop          Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  plan          PlanTier @default(DEVELOPMENT)
+  status        String   @default("active") // active | frozen | cancelled | pending
+  // Shopify App Pricing / Active Subscription API identifiers, kept for
+  // support and reconciliation only — entitlements are derived from `plan`.
+  shopifySubscriptionId String?
+  currentPeriodEnd      DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// Centralizes feature flags/limits per plan so the rest of the app never
+// hardcodes `if (plan === "pro")`. See app/lib/entitlements.server.ts.
+model FeatureEntitlement {
+  id                    String   @id @default(cuid())
+  plan                  PlanTier @unique
+  maxActiveOffers       Int
+  canCreateMixMatch     Boolean
+  canCreateGroupedBundle Boolean
+  advancedStyling       Boolean
+  analyticsLevel        String // "basic" | "advanced"
+
+  updatedAt DateTime @updatedAt
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  shopId    String
+  shop      Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  actor     String // "merchant" | "system" | "webhook:<topic>"
+  action    String // e.g. "offer.publish", "offer.delete", "compliance.shop_redact"
+  entity    String? // e.g. "Offer:<id>"
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  @@index([shopId, createdAt])
+}
