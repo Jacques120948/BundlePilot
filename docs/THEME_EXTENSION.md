@@ -155,8 +155,9 @@ never carries its own discount, only its own selection rules).
 ## Adding the blocks to a theme
 
 Merchants can add either block manually via Theme Editor → Add block →
-Apps → BundlePilot: Quantity Break / BundlePilot: Mix & Match. As of
-Phase 3, `app/routes/app.settings.tsx` also renders two one-click
+Apps → BundlePilot: Qty Break / BundlePilot: Mix & Match (theme app block
+names have a 25-character limit, hence "Qty" rather than "Quantity"). As
+of Phase 3, `app/routes/app.settings.tsx` also renders two one-click
 "Add … to my theme" deep links (brief item 46) built from
 `SHOPIFY_API_KEY` at request time — no hardcoded client id — using the
 format documented at
