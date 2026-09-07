@@ -15,3 +15,11 @@ description = "Applies the merchant's quantity-break tiers to cart lines. Never 
   [extensions.build]
   command = ""
   path = "dist/function.wasm"
+  # `shopify app function typegen`'s built-in JS codegen path requires a
+  # "codegen" block in this extension's package.json (undocumented outside
+  # the CLI's own source); without one it fails hard rather than skipping.
+  # src/../generated/api.ts is hand-maintained to match the input query in
+  # cart_lines_discounts_generate_run.graphql instead — see
+  # docs/DISCOUNT_ENGINE.md "Verification status". This no-op keeps
+  # `dev`/`build` from tripping over that codegen requirement.
+  typegen_command = "node -e process.exit(0)"
